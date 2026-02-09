@@ -7,6 +7,9 @@ pnpm-lock.yaml
 # Build output
 dist/
 *.js.map
+
+# TypeScript declaration files (generated during build)
+# Note: For a library, these would be committed, but this is a CLI app
 *.d.ts
 
 # Environment
