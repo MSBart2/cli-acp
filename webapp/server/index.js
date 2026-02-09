@@ -49,9 +49,9 @@ const agents = new Map();
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Validate that a URL looks like a safe Git HTTPS URL. */
+/** Validate that a URL looks like a safe Git HTTPS URL (GitHub/GitLab/Bitbucket style). */
 function isValidGitUrl(url) {
-  return /^https:\/\/[\w.@:\-~]+\/[\w.\-/]+(?:\.git)?$/.test(url);
+  return /^https:\/\/(?:github\.com|gitlab\.com|bitbucket\.org|dev\.azure\.com)\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+)*(?:\.git)?$/.test(url);
 }
 
 /** Extract a sanitised human-readable repo name from a GitHub URL. */

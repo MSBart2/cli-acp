@@ -4,7 +4,8 @@ import Header from "./components/Header";
 import RepoInput from "./components/RepoInput";
 import AgentCard from "./components/AgentCard";
 
-const socket = io("http://localhost:3001");
+const SOCKET_URL = import.meta.env.DEV ? "http://localhost:3001" : undefined;
+const socket = io(SOCKET_URL);
 
 export default function App() {
   const [agents, setAgents] = useState({});
