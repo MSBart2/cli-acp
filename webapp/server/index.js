@@ -49,9 +49,15 @@ const agents = new Map();
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Extract a human-readable repo name from a GitHub URL. */
+/** Validate that a URL looks like a safe Git HTTPS URL. */
+function isValidGitUrl(url) {
+  return /^https:\/\/[\w.@:\-~]+\/[\w.\-/]+(?:\.git)?$/.test(url);
+}
+
+/** Extract a sanitised human-readable repo name from a GitHub URL. */
 function repoNameFromUrl(url) {
-  return basename(url.replace(/\.git$/, ""));
+  // basename + strip non-alphanumeric chars to prevent path traversal
+  return basename(url.replace(/\.git$/, "")).replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
 /**
@@ -257,8 +263,12 @@ io.on("connection", (socket) => {
 
   // -- Create a new agent for a repo --
   socket.on("agent:create", async ({ repoUrl }) => {
-    if (!repoUrl) {
+    if (!repoUrl || typeof repoUrl !== "string") {
       socket.emit("agent:error", { agentId: null, error: "repoUrl is required" });
+      return;
+    }
+    if (!isValidGitUrl(repoUrl)) {
+      socket.emit("agent:error", { agentId: null, error: "Invalid repository URL. Only HTTPS Git URLs are supported." });
       return;
     }
     console.log(`[socket] agent:create → ${repoUrl}`);
@@ -267,6 +277,10 @@ io.on("connection", (socket) => {
 
   // -- Send a prompt to an existing agent --
   socket.on("agent:prompt", async ({ agentId, text }) => {
+    if (!agentId || typeof text !== "string" || text.length === 0) {
+      socket.emit("agent:error", { agentId, error: "agentId and non-empty text are required" });
+      return;
+    }
     const agent = agents.get(agentId);
     if (!agent) {
       socket.emit("agent:error", { agentId, error: "Agent not found" });
