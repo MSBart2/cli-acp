@@ -20,7 +20,8 @@ export default function App() {
         [data.agentId]: {
           agentId: data.agentId,
           repoUrl: data.repoUrl,
-          status: "initializing",
+          repoName: data.repoName,
+          status: data.status || "ready",
           output: [],
           pendingPermission: null,
         },
@@ -39,10 +40,15 @@ export default function App() {
         } else if (data.type === "tool_call") {
           updated.output = [
             ...agent.output,
-            { type: "tool_call", name: data.name, args: data.args },
+            { type: "tool_call", name: data.content?.title, args: data.content?.status },
+          ];
+        } else if (data.type === "tool_call_update") {
+          updated.output = [
+            ...agent.output,
+            { type: "tool_call", name: data.content?.toolCallId, args: data.content?.status },
           ];
         } else if (data.type === "status") {
-          updated.status = data.status;
+          updated.status = data.content;
         }
 
         return { ...prev, [data.agentId]: updated };
@@ -118,8 +124,8 @@ export default function App() {
     socket.emit("agent:create", { repoUrl });
   }, []);
 
-  const handleSendPrompt = useCallback((agentId, prompt) => {
-    socket.emit("agent:prompt", { agentId, prompt });
+  const handleSendPrompt = useCallback((agentId, text) => {
+    socket.emit("agent:prompt", { agentId, text });
     setAgents((prev) => {
       const agent = prev[agentId];
       if (!agent) return prev;
