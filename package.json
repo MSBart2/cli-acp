@@ -13,6 +13,7 @@
     "example:simple": "tsx examples/simple-prompt.ts",
     "example:multi-repo": "tsx examples/multi-repo.ts",
     "example:workflow": "tsx examples/workflow-consistency.ts",
+    "example:advanced": "tsx examples/advanced-context.ts",
     "clean": "rm -rf dist"
   },
   "keywords": [

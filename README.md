@@ -49,6 +49,8 @@ npm run build
 
 ## Quick Start
 
+⚡ **New to CLI-ACP?** Check out the [Quick Start Guide](./QUICKSTART.md) for a 5-minute introduction!
+
 ### 1. Simple Prompt Example
 
 Send a single prompt to GitHub Copilot:
@@ -133,11 +135,15 @@ See the `examples/` directory for detailed examples:
 
 - **`simple-prompt.ts`** - Basic ACP interaction with a single prompt
 - **`multi-repo.ts`** - Orchestrating across multiple repositories
+- **`workflow-consistency.ts`** - Cross-repository consistency checking workflow
+- **`advanced-context.ts`** - Maintaining context across multiple prompts
 
 Run examples with:
 ```bash
-npm run example:simple
-npm run example:multi-repo
+npm run example:simple       # Basic example
+npm run example:multi-repo   # Multi-repository
+npm run example:workflow     # Consistency workflow
+npm run example:advanced     # Contextual conversation
 ```
 
 ## Use Cases
@@ -221,10 +227,12 @@ npm run clean
 
 ## Resources
 
+- 📖 **[Quick Start Guide](./QUICKSTART.md)** - Get started in 5 minutes
+- 📚 **[Research Notes](./research.md)** - Comprehensive ACP documentation and references
+- 🤝 **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute to the project
 - **ACP Official Documentation**: https://agentclientprotocol.com/
 - **GitHub Copilot CLI ACP Reference**: https://docs.github.com/en/copilot/reference/acp-server
 - **ACP TypeScript SDK**: https://agentclientprotocol.com/libraries/typescript
-- **Research Notes**: See [research.md](./research.md) for detailed information
 
 ## Troubleshooting
 
