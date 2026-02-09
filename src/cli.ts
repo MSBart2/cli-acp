@@ -3,7 +3,7 @@
 import { Command } from "commander";
 import { ACPClient } from "./acp-client";
 import { MultiRepoOrchestrator, Repository } from "./orchestrator";
-import * as fs from "node:fs";
+import { loadConfig } from "./utils/config";
 import * as path from "node:path";
 
 const program = new Command();
@@ -51,16 +51,14 @@ program
 
       if (options.config) {
         // Load repositories from config file
-        const configPath = path.resolve(options.config);
-        if (!fs.existsSync(configPath)) {
-          console.error(`Config file not found: ${configPath}`);
+        try {
+          const config = loadConfig(options.config);
+          repositories = config.repositories;
+        } catch (error) {
+          console.error(`Error loading config: ${error}`);
           process.exitCode = 1;
           return;
         }
-
-        const configContent = fs.readFileSync(configPath, "utf-8");
-        const config = JSON.parse(configContent);
-        repositories = config.repositories;
       } else {
         // Default: use current directory only
         repositories = [
