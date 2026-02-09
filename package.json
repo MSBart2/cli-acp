@@ -1,0 +1,39 @@
+{
+  "name": "cli-acp",
+  "version": "0.1.0",
+  "description": "Demo of GitHub Copilot for multi-repo orchestration using Agent Communication Protocol (ACP)",
+  "main": "dist/index.js",
+  "bin": {
+    "cli-acp": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "example:simple": "tsx examples/simple-prompt.ts",
+    "example:multi-repo": "tsx examples/multi-repo.ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "acp",
+    "copilot",
+    "cli",
+    "agent",
+    "orchestration",
+    "multi-repo"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^0.1.0",
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

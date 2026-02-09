@@ -1,0 +1,19 @@
+{
+  "repositories": [
+    {
+      "name": "cli-acp",
+      "path": ".",
+      "description": "CLI-ACP demo application"
+    },
+    {
+      "name": "example-repo-1",
+      "path": "/path/to/your/first/repo",
+      "description": "First example repository"
+    },
+    {
+      "name": "example-repo-2",
+      "path": "/path/to/your/second/repo",
+      "description": "Second example repository"
+    }
+  ]
+}
