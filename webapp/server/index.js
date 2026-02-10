@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
-import { isValidGitUrl, repoNameFromUrl } from "./helpers.js";
+import { isValidGitUrl, repoNameFromUrl, extractWorkItems } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -45,6 +45,21 @@ app.use(express.static(join(__dirname, "../client/dist")));
 
 /** @type {Map<string, {process, connection, sessionId, repoUrl, repoName, repoPath, role, status, permissionResolver}>} */
 const agents = new Map();
+
+/**
+ * Server-side registry of work items (PRs & issues) detected from agent
+ * output. Keyed by URL so the same item is never stored twice.
+ * @type {Map<string, { url: string, owner: string, repo: string, type: "issue"|"pr", number: number, detectedAt: string, agentId: string, agentRepoName: string }>}
+ */
+const workItems = new Map();
+
+/**
+ * Keeps the last N broadcast waves so the client can review past results.
+ * Most recent wave is at the end of the array.
+ * @type {Array<{ promptText: string, timestamp: string, results: Array }>}
+ */
+const broadcastHistory = [];
+const MAX_BROADCAST_HISTORY = 10;
 
 /**
  * Tracks the currently-active broadcast wave so we can coalesce results.
@@ -93,6 +108,45 @@ function cloneRepo(repoUrl) {
 
     git.on("error", (err) => reject(err));
   });
+}
+
+// ---------------------------------------------------------------------------
+// Work-item detection — scans agent text for PR / issue URLs
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan text from an agent for GitHub PR/issue URLs and register any new
+ * ones found. Emits `workitems:updated` to the socket when the registry
+ * changes.
+ *
+ * @param {object} socket  Socket.IO socket to notify
+ * @param {string} agentId Agent that produced the text
+ * @param {string} text    Raw text chunk from the agent
+ */
+function detectWorkItems(socket, agentId, text) {
+  const agent = agents.get(agentId);
+  if (!agent) return;
+
+  const found = extractWorkItems(text);
+  let changed = false;
+
+  for (const item of found) {
+    if (!workItems.has(item.url)) {
+      workItems.set(item.url, {
+        ...item,
+        detectedAt: new Date().toISOString(),
+        agentId,
+        agentRepoName: agent.repoName,
+      });
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    socket.emit("workitems:updated", {
+      items: [...workItems.values()],
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +285,9 @@ async function createAgent(socket, repoUrl, role = "worker") {
               type: "text",
               content: update.content.text,
             });
+
+            // Scan for PR/issue URLs in real-time as text streams in
+            detectWorkItems(socket, agentId, update.content.text);
 
             // If this agent is part of an active broadcast wave, accumulate
             // its text so we can coalesce results when the wave completes
@@ -530,6 +587,8 @@ io.on("connection", (socket) => {
     }
 
     // Fan out prompts — each runs independently so one failure doesn't block others
+    let completedCount = 0;
+    const totalCount = readyAgents.length;
     const promises = readyAgents.map(async ([agentId, agent]) => {
       try {
         const result = await agent.connection.prompt({
@@ -557,6 +616,13 @@ io.on("connection", (socket) => {
           agentId,
           error: `Prompt failed: ${err.message}`,
         });
+      } finally {
+        // Emit progress so the frontend can show "X of Y agents done"
+        completedCount += 1;
+        socket.emit("agent:broadcast_progress", {
+          completed: completedCount,
+          total: totalCount,
+        });
       }
     });
 
@@ -579,6 +645,18 @@ io.on("connection", (socket) => {
         timestamp: activeBroadcastWave.startedAt,
         results,
       });
+
+      // Store in broadcast history so users can review past waves
+      const historyEntry = {
+        promptText: activeBroadcastWave.promptText,
+        timestamp: activeBroadcastWave.startedAt,
+        results,
+      };
+      broadcastHistory.push(historyEntry);
+      if (broadcastHistory.length > MAX_BROADCAST_HISTORY) {
+        broadcastHistory.shift();
+      }
+      socket.emit("broadcast:history", { history: broadcastHistory });
 
       // Auto-forward coalesced results to the orchestrator agent (if one exists)
       const orchestrator = [...agents.values()].find(
@@ -653,6 +731,16 @@ io.on("connection", (socket) => {
 
     // Notify the frontend the entire broadcast round is done
     socket.emit("agent:prompt_all_complete");
+  });
+
+  // -- Request current list of detected work items (PRs / issues) --
+  socket.on("workitems:list", () => {
+    socket.emit("workitems:updated", { items: [...workItems.values()] });
+  });
+
+  // -- Request broadcast history --
+  socket.on("broadcast:list_history", () => {
+    socket.emit("broadcast:history", { history: broadcastHistory });
   });
 
   socket.on("disconnect", () => {

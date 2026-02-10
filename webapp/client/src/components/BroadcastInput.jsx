@@ -6,9 +6,9 @@ import { Send, Loader2, Radio, ChevronDown, ChevronRight, Sparkles } from "lucid
  * Optionally includes synthesis instructions that guide what the orchestrator
  * does with the coalesced worker results.
  *
- * @param {{ onBroadcast: (text: string, synthesisInstructions?: string) => void, readyCount: number, totalCount: number, broadcasting: boolean, hasOrchestrator: boolean }} props
+ * @param {{ onBroadcast: (text: string, synthesisInstructions?: string) => void, readyCount: number, totalCount: number, broadcasting: boolean, hasOrchestrator: boolean, broadcastProgress: { completed: number, total: number } | null }} props
  */
-export default function BroadcastInput({ onBroadcast, readyCount, totalCount, broadcasting, hasOrchestrator }) {
+export default function BroadcastInput({ onBroadcast, readyCount, totalCount, broadcasting, hasOrchestrator, broadcastProgress }) {
   const [text, setText] = useState("");
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [showSynthesis, setShowSynthesis] = useState(false);
@@ -66,6 +66,26 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, br
               Broadcast
             </button>
           </div>
+
+          {/* Progress bar — visible during active broadcasts */}
+          {broadcasting && broadcastProgress && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs text-gray-400">
+                <span>
+                  {broadcastProgress.completed} of {broadcastProgress.total} agent{broadcastProgress.total !== 1 ? "s" : ""} completed
+                </span>
+                <span>
+                  {Math.round((broadcastProgress.completed / broadcastProgress.total) * 100)}%
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-teal-500 to-blue-500 transition-all duration-500"
+                  style={{ width: `${(broadcastProgress.completed / broadcastProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Collapsible synthesis instructions — only shown when an orchestrator exists */}
           {hasOrchestrator && (
