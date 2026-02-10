@@ -7,6 +7,8 @@ import AgentCard from "./components/AgentCard";
 import OrchestratorCard from "./components/OrchestratorCard";
 import BroadcastInput from "./components/BroadcastInput";
 import BroadcastResults from "./components/BroadcastResults";
+import WorkItemTracker from "./components/WorkItemTracker";
+import BroadcastHistory from "./components/BroadcastHistory";
 
 const SOCKET_URL = import.meta.env.DEV ? "http://localhost:3001" : undefined;
 const socket = io(SOCKET_URL);
@@ -16,6 +18,10 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResults, setBroadcastResults] = useState(null);
+  const [broadcastProgress, setBroadcastProgress] = useState(null);
+  const [workItems, setWorkItems] = useState([]);
+  const [broadcastHistory, setBroadcastHistory] = useState([]);
+  const [showWorkTracker, setShowWorkTracker] = useState(true);
 
   useEffect(() => {
     socket.on("connect", () => setConnected(true));
@@ -155,14 +161,36 @@ export default function App() {
       });
     });
 
-    // Broadcast wave finished — clear the broadcasting spinner
+    // Broadcast wave finished — clear the broadcasting spinner and progress
     socket.on("agent:prompt_all_complete", () => {
       setBroadcasting(false);
+      setBroadcastProgress(null);
     });
 
     // Coalesced results from a broadcast wave
     socket.on("agent:broadcast_results", (data) => {
       setBroadcastResults(data);
+    });
+
+    // Per-agent broadcast progress (X of Y completed)
+    socket.on("agent:broadcast_progress", (data) => {
+      setBroadcastProgress(data);
+    });
+
+    // Work items (PRs / issues) detected from agent output
+    socket.on("workitems:updated", (data) => {
+      setWorkItems(data.items || []);
+    });
+
+    // Broadcast history
+    socket.on("broadcast:history", (data) => {
+      setBroadcastHistory(data.history || []);
+    });
+
+    // Request existing state from the server on (re)connect
+    socket.on("connect", () => {
+      socket.emit("workitems:list");
+      socket.emit("broadcast:list_history");
     });
 
     return () => {
@@ -177,6 +205,9 @@ export default function App() {
       socket.off("agent:stopped");
       socket.off("agent:prompt_all_complete");
       socket.off("agent:broadcast_results");
+      socket.off("agent:broadcast_progress");
+      socket.off("workitems:updated");
+      socket.off("broadcast:history");
     };
   }, []);
 
@@ -266,6 +297,17 @@ export default function App() {
                 totalCount={workers.length}
                 broadcasting={broadcasting}
                 hasOrchestrator={hasOrchestrator}
+                broadcastProgress={broadcastProgress}
+              />
+            </div>
+          )}
+
+          {/* Work item tracker — shows all detected PRs and issues */}
+          {workItems.length > 0 && showWorkTracker && (
+            <div className="mt-4">
+              <WorkItemTracker
+                items={workItems}
+                onDismiss={() => setShowWorkTracker(false)}
               />
             </div>
           )}
@@ -277,6 +319,13 @@ export default function App() {
                 broadcastResults={broadcastResults}
                 onDismiss={() => setBroadcastResults(null)}
               />
+            </div>
+          )}
+
+          {/* Broadcast history — past broadcast waves */}
+          {broadcastHistory.length > 0 && (
+            <div className="mt-4">
+              <BroadcastHistory history={broadcastHistory} />
             </div>
           )}
 
