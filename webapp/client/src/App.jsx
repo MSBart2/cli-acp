@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
+import { Terminal } from "lucide-react";
 import Header from "./components/Header";
 import RepoInput from "./components/RepoInput";
 import AgentCard from "./components/AgentCard";
+import OrchestratorCard from "./components/OrchestratorCard";
+import BroadcastInput from "./components/BroadcastInput";
+import BroadcastResults from "./components/BroadcastResults";
 
 const SOCKET_URL = import.meta.env.DEV ? "http://localhost:3001" : undefined;
 const socket = io(SOCKET_URL);
@@ -10,23 +14,53 @@ const socket = io(SOCKET_URL);
 export default function App() {
   const [agents, setAgents] = useState({});
   const [connected, setConnected] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastResults, setBroadcastResults] = useState(null);
 
   useEffect(() => {
     socket.on("connect", () => setConnected(true));
     socket.on("disconnect", () => setConnected(false));
 
+    // Show a placeholder card immediately while the agent is being spawned
+    socket.on("agent:spawning", (data) => {
+      setAgents((prev) => {
+        const existing = prev[data.agentId];
+        return {
+          ...prev,
+          [data.agentId]: {
+            agentId: data.agentId,
+            repoUrl: data.repoUrl,
+            repoName: data.repoName,
+            role: data.role || existing?.role || "worker",
+            status: "spawning",
+            spawnStep: data.step,
+            spawnMessage: data.message,
+            output: existing?.output || [],
+            pendingPermission: null,
+          },
+        };
+      });
+    });
+
+    // Agent is fully ready — transition from spawning to ready
     socket.on("agent:created", (data) => {
-      setAgents((prev) => ({
-        ...prev,
-        [data.agentId]: {
-          agentId: data.agentId,
-          repoUrl: data.repoUrl,
-          repoName: data.repoName,
-          status: data.status || "ready",
-          output: [],
-          pendingPermission: null,
-        },
-      }));
+      setAgents((prev) => {
+        const existing = prev[data.agentId];
+        return {
+          ...prev,
+          [data.agentId]: {
+            ...existing,
+            agentId: data.agentId,
+            repoUrl: data.repoUrl,
+            repoName: data.repoName,
+            role: data.role || existing?.role || "worker",
+            status: data.status || "ready",
+            spawnStep: null,
+            spawnMessage: null,
+            pendingPermission: existing?.pendingPermission || null,
+          },
+        };
+      });
     });
 
     socket.on("agent:update", (data) => {
@@ -37,7 +71,19 @@ export default function App() {
         const updated = { ...agent };
 
         if (data.type === "text") {
-          updated.output = [...agent.output, { type: "text", content: data.content }];
+          // Merge consecutive text chunks into one entry so streaming
+          // fragments don't each get their own line in the output
+          const lastEntry = agent.output[agent.output.length - 1];
+          if (lastEntry?.type === "text") {
+            const merged = [...agent.output];
+            merged[merged.length - 1] = {
+              ...lastEntry,
+              content: lastEntry.content + data.content,
+            };
+            updated.output = merged;
+          } else {
+            updated.output = [...agent.output, { type: "text", content: data.content }];
+          }
         } else if (data.type === "tool_call") {
           updated.output = [
             ...agent.output,
@@ -109,20 +155,33 @@ export default function App() {
       });
     });
 
+    // Broadcast wave finished — clear the broadcasting spinner
+    socket.on("agent:prompt_all_complete", () => {
+      setBroadcasting(false);
+    });
+
+    // Coalesced results from a broadcast wave
+    socket.on("agent:broadcast_results", (data) => {
+      setBroadcastResults(data);
+    });
+
     return () => {
       socket.off("connect");
       socket.off("disconnect");
+      socket.off("agent:spawning");
       socket.off("agent:created");
       socket.off("agent:update");
       socket.off("agent:prompt_complete");
       socket.off("agent:permission_request");
       socket.off("agent:error");
       socket.off("agent:stopped");
+      socket.off("agent:prompt_all_complete");
+      socket.off("agent:broadcast_results");
     };
   }, []);
 
-  const handleLaunchAgent = useCallback((repoUrl) => {
-    socket.emit("agent:create", { repoUrl });
+  const handleLaunchAgent = useCallback((repoUrl, role = "worker") => {
+    socket.emit("agent:create", { repoUrl, role });
   }, []);
 
   const handleSendPrompt = useCallback((agentId, text) => {
@@ -147,36 +206,105 @@ export default function App() {
     });
   }, []);
 
+  /** Fan-out: send the same prompt to every ready agent at once */
+  const handleBroadcastPrompt = useCallback((text, synthesisInstructions) => {
+    setBroadcasting(true);
+    // Clear previous results when a new broadcast starts
+    setBroadcastResults(null);
+    socket.emit("agent:prompt_all", { text, synthesisInstructions });
+
+    // Optimistically mark every ready worker agent as busy
+    setAgents((prev) => {
+      const next = { ...prev };
+      for (const id of Object.keys(next)) {
+        if (next[id].status === "ready" && next[id].role !== "orchestrator") {
+          next[id] = { ...next[id], status: "busy" };
+        }
+      }
+      return next;
+    });
+  }, []);
+
   const agentList = Object.values(agents);
+  const orchestrator = agentList.find((a) => a.role === "orchestrator");
+  const workers = agentList.filter((a) => a.role !== "orchestrator");
+  const readyCount = workers.filter((a) => a.status === "ready").length;
+  const hasOrchestrator = Boolean(orchestrator);
 
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
-      <Header connected={connected} />
+      {/* Subtle radial glow behind the page content for depth */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-purple-600/[0.07] rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-0 w-[600px] h-[400px] bg-blue-600/[0.05] rounded-full blur-3xl" />
+      </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <RepoInput onLaunch={handleLaunchAgent} connected={connected} />
+      <div className="relative">
+        <Header connected={connected} />
 
-        {agentList.length > 0 && (
-          <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {agentList.map((agent) => (
-              <AgentCard
-                key={agent.agentId}
-                agent={agent}
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <RepoInput onLaunch={handleLaunchAgent} connected={connected} hasOrchestrator={hasOrchestrator} />
+
+          {/* Orchestrator card — full-width, always above everything else */}
+          {orchestrator && (
+            <div className="mt-6">
+              <OrchestratorCard
+                agent={orchestrator}
                 onSendPrompt={handleSendPrompt}
                 onStop={handleStopAgent}
                 onPermissionResponse={handlePermissionResponse}
               />
-            ))}
-          </div>
-        )}
+            </div>
+          )}
 
-        {agentList.length === 0 && (
-          <div className="mt-16 text-center text-gray-500">
-            <p className="text-lg">No agents running.</p>
-            <p className="text-sm mt-1">Enter a repository URL above to launch your first agent.</p>
-          </div>
-        )}
-      </main>
+          {/* Show the broadcast bar once there are worker agents to target */}
+          {workers.length > 0 && (
+            <div className="mt-6">
+              <BroadcastInput
+                onBroadcast={handleBroadcastPrompt}
+                readyCount={readyCount}
+                totalCount={workers.length}
+                broadcasting={broadcasting}
+                hasOrchestrator={hasOrchestrator}
+              />
+            </div>
+          )}
+
+          {/* Coalesced broadcast results — appears after a broadcast wave completes */}
+          {broadcastResults && (
+            <div className="mt-4">
+              <BroadcastResults
+                broadcastResults={broadcastResults}
+                onDismiss={() => setBroadcastResults(null)}
+              />
+            </div>
+          )}
+
+          {workers.length > 0 && (
+            <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {workers.map((agent) => (
+                <AgentCard
+                  key={agent.agentId}
+                  agent={agent}
+                  onSendPrompt={handleSendPrompt}
+                  onStop={handleStopAgent}
+                  onPermissionResponse={handlePermissionResponse}
+                />
+              ))}
+            </div>
+          )}
+
+          {agentList.length === 0 && (
+            <div className="mt-20 text-center">
+              <div className="inline-flex p-4 rounded-2xl bg-white/[0.03] border border-white/10 mb-5">
+                <Terminal className="w-8 h-8 text-purple-400/60" />
+              </div>
+              <p className="text-lg text-gray-300 font-medium">No agents running</p>
+              <p className="text-sm text-gray-500 mt-1">Enter a repository URL above to launch your first agent.</p>
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
