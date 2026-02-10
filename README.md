@@ -2,15 +2,19 @@
 
 A beautiful web interface for orchestrating GitHub Copilot CLI agents across multiple repositories using the Agent Client Protocol (ACP), now with **orchestrator + worker roles**, **broadcast prompts**, and **automatic synthesis** of cross-repo results.
 
-![ACP Agent Orchestrator](https://github.com/user-attachments/assets/fcc7670a-b082-4ba9-b46e-5567027078f3)
-
 ## Highlights
 
 - **Launch orchestrator + worker agents** (one `copilot --acp --stdio` process per repo)
 - **Broadcast prompts** to all worker agents with optional synthesis instructions
 - **Coalesced results panel** plus auto-forward to the orchestrator card
+- **Issue/PR tracking loop** (worker issues → orchestrator issue map → coordinated PRs)
 - **Interactive card UI** with streaming output and permission approvals
 - **Modern dark theme** with glassmorphism styling
+
+## Screenshots
+
+![Multiple agents working simultaneously](https://github.com/user-attachments/assets/178093ff-603a-4827-b715-a3db978cf1cb)
+![Coalesced broadcast results panel](https://github.com/user-attachments/assets/7b2a38bc-eb95-4ad3-be5d-86f8b9e07c2a)
 
 ## Scenario spotlight: Cross-Repo Documentation Audit
 
@@ -58,8 +62,9 @@ Then open [http://localhost:5173](http://localhost:5173).
 1. **Launch an orchestrator** by entering the coordination repo URL and clicking **Orchestrator**.
 2. **Launch worker agents** for each target repo using the **Worker** button.
 3. **Broadcast a prompt** to workers; add synthesis instructions to guide the orchestrator’s follow-up.
-4. Review **coalesced results** and the orchestrator’s synthesized output.
-5. **Send targeted prompts**, approve permissions, and stop agents when finished.
+4. **Track work with issues** by broadcasting an issue-creation prompt; the orchestrator captures the issue map.
+5. Review **coalesced results** and the orchestrator’s synthesized output.
+6. **Send targeted prompts**, approve permissions, and stop agents when finished.
 
 ## Configuration
 
