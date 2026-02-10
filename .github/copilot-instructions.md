@@ -96,6 +96,9 @@ npm run prod          # build + start in one step
 
 - **One process per agent** — each agent maps to a single `copilot --acp
 --stdio` child process. Never share a process across agents.
+- **Orchestrator vs worker roles** — `agent:create` accepts a `role` of
+  `"orchestrator"` or `"worker"`. Broadcast prompts target workers only, and
+  the server auto-forwards coalesced results to the orchestrator agent.
 - **`ClientSideConnection`** from `@agentclientprotocol/sdk` manages the JSON
   RPC stream. The two client callbacks that matter most are:
   - `requestPermission` — surfaces tool-execution approvals to the user.
@@ -113,6 +116,15 @@ npm run prod          # build + start in one step
 - When adding new Socket.IO events, follow the existing `agent:<action>`
   naming convention and handle them in both the server's `io.on("connection")`
   block and the client's `useEffect` in `App.jsx`.
+
+## Scenario Reference
+
+The canonical demo scenario is documented in [`SCENARIO.md`](../SCENARIO.md).
+It covers the cross-repo documentation audit workflow, including the
+orchestrator’s role in writing coordination files (issues, PR maps, rollout
+plans). Keep this scenario in mind when updating orchestration flows or UI
+layout so the orchestrator card, broadcast results, and synthesis steps remain
+aligned with the demo narrative.
 
 ## Testing
 
