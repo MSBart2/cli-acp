@@ -50,9 +50,9 @@ describe("WorkItemTracker", () => {
   it("renders the title and counts", () => {
     render(<WorkItemTracker items={makeItems()} onDismiss={() => {}} />);
     expect(screen.getByText("Work Item Tracker")).toBeInTheDocument();
-    // 1 PR, 2 issues
-    expect(screen.getByText(/1 PR/)).toBeInTheDocument();
+    // 2 issues, 1 PR
     expect(screen.getByText(/2 issues/)).toBeInTheDocument();
+    expect(screen.getByText(/1 PR/)).toBeInTheDocument();
   });
 
   it("groups items by owner/repo", () => {
@@ -72,6 +72,15 @@ describe("WorkItemTracker", () => {
     render(<WorkItemTracker items={makeItems()} onDismiss={() => {}} />);
     expect(screen.getByText("Pull Request")).toBeInTheDocument();
     expect(screen.getAllByText("Issue")).toHaveLength(2);
+  });
+
+  it("shows issues before PRs within a repo group", () => {
+    render(<WorkItemTracker items={makeItems()} onDismiss={() => {}} />);
+    const badges = screen.getAllByText(/Issue|Pull Request/);
+    // Within api-gateway group: Issue (#12) should appear before Pull Request (#42)
+    const issueIdx = badges.findIndex((el) => el.textContent === "Issue");
+    const prIdx = badges.findIndex((el) => el.textContent === "Pull Request");
+    expect(issueIdx).toBeLessThan(prIdx);
   });
 
   it("calls onDismiss when dismiss button is clicked", () => {

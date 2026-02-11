@@ -53,9 +53,9 @@
 - [x] Success criteria expanded to 14 items covering full issue→PR traceability
 
 ### Work Item Tracking & Synchronization
-- [x] `extractWorkItems()` helper — parses GitHub/GitLab/Bitbucket PR & issue URLs from agent text
-- [x] Server-side `workItems` registry — tracks detected PRs and issues, deduplicates, emits `workitems:updated`
-- [x] `WorkItemTracker` component — live dashboard grouping all detected PRs/issues by repo
+- [x] `extractWorkItems()` helper — parses GitHub/GitLab/Bitbucket issue & PR URLs from agent text
+- [x] Server-side `workItems` registry — tracks detected issues and PRs, deduplicates, emits `workitems:updated`
+- [x] `WorkItemTracker` component — live dashboard grouping all detected issues/PRs by repo
 - [x] Broadcast progress events — `agent:broadcast_progress` shows X/Y agents completed during waves
 - [x] Progress bar in `BroadcastInput` — real-time visual indicator during active broadcasts
 - [x] Broadcast history — server keeps last 10 waves, `BroadcastHistory` component shows past waves

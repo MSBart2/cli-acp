@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 
 /**
- * WorkItemTracker — a live dashboard showing all PRs and issues detected
+ * WorkItemTracker — a live dashboard showing all issues and PRs detected
  * from agent output. Items are auto-extracted from GitHub/GitLab/Bitbucket
  * URLs in agent text and grouped by repository.
  *
@@ -20,13 +20,17 @@ export default function WorkItemTracker({ items, onDismiss }) {
   const prCount = useMemo(() => items.filter((i) => i.type === "pr").length, [items]);
   const issueCount = useMemo(() => items.filter((i) => i.type === "issue").length, [items]);
 
-  // Group items by "owner/repo"
+  // Group items by "owner/repo", showing issues before PRs within each group
   const grouped = useMemo(() => {
     const map = new Map();
     for (const item of items) {
       const key = `${item.owner}/${item.repo}`;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(item);
+    }
+    // Sort issues before PRs within each repo group
+    for (const [, repoItems] of map) {
+      repoItems.sort((a, b) => (a.type === "issue" ? -1 : 1) - (b.type === "issue" ? -1 : 1));
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [items]);
@@ -51,16 +55,16 @@ export default function WorkItemTracker({ items, onDismiss }) {
           </button>
 
           <span className="ml-auto flex items-center gap-3 text-xs text-gray-500">
-            {prCount > 0 && (
-              <span className="flex items-center gap-1">
-                <GitPullRequest className="w-3.5 h-3.5 text-green-400" />
-                {prCount} PR{prCount !== 1 ? "s" : ""}
-              </span>
-            )}
             {issueCount > 0 && (
               <span className="flex items-center gap-1">
                 <CircleDot className="w-3.5 h-3.5 text-purple-400" />
                 {issueCount} issue{issueCount !== 1 ? "s" : ""}
+              </span>
+            )}
+            {prCount > 0 && (
+              <span className="flex items-center gap-1">
+                <GitPullRequest className="w-3.5 h-3.5 text-green-400" />
+                {prCount} PR{prCount !== 1 ? "s" : ""}
               </span>
             )}
           </span>
