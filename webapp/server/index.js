@@ -47,7 +47,7 @@ app.use(express.static(join(__dirname, "../client/dist")));
 const agents = new Map();
 
 /**
- * Server-side registry of work items (PRs & issues) detected from agent
+ * Server-side registry of work items (issues & PRs) detected from agent
  * output. Keyed by URL so the same item is never stored twice.
  * @type {Map<string, { url: string, owner: string, repo: string, type: "issue"|"pr", number: number, detectedAt: string, agentId: string, agentRepoName: string }>}
  */
@@ -111,11 +111,11 @@ function cloneRepo(repoUrl) {
 }
 
 // ---------------------------------------------------------------------------
-// Work-item detection — scans agent text for PR / issue URLs
+// Work-item detection — scans agent text for issue / PR URLs
 // ---------------------------------------------------------------------------
 
 /**
- * Scan text from an agent for GitHub PR/issue URLs and register any new
+ * Scan text from an agent for GitHub issue/PR URLs and register any new
  * ones found. Emits `workitems:updated` to the socket when the registry
  * changes.
  *
@@ -286,7 +286,7 @@ async function createAgent(socket, repoUrl, role = "worker") {
               content: update.content.text,
             });
 
-            // Scan for PR/issue URLs in real-time as text streams in
+            // Scan for issue/PR URLs in real-time as text streams in
             detectWorkItems(socket, agentId, update.content.text);
 
             // If this agent is part of an active broadcast wave, accumulate
@@ -683,8 +683,8 @@ io.on("connection", (socket) => {
           `Synthesize these results into a coordination document. ` +
           `Identify the overall state across repos, flag any cross-repo dependencies or risks, ` +
           `and recommend a priority order for next steps. ` +
-          `If any workers reported PR URLs, collect them into a table with columns: Repo, PR, Status, Dependencies, Notes. ` +
           `If any workers reported issue URLs, collect them into a table with columns: Repo, Issue, Title. ` +
+          `If any workers reported PR URLs, collect them into a table with columns: Repo, PR, Status, Dependencies, Notes. ` +
           `Write your synthesis to a file in the operations/ directory of this repo.` +
           // Append user-provided synthesis instructions so the orchestrator
           // gets domain-specific guidance (e.g. "create a parent issue")
@@ -733,7 +733,7 @@ io.on("connection", (socket) => {
     socket.emit("agent:prompt_all_complete");
   });
 
-  // -- Request current list of detected work items (PRs / issues) --
+  // -- Request current list of detected work items (issues / PRs) --
   socket.on("workitems:list", () => {
     socket.emit("workitems:updated", { items: [...workItems.values()] });
   });

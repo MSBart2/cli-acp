@@ -177,7 +177,7 @@ export default function App() {
       setBroadcastProgress(data);
     });
 
-    // Work items (PRs / issues) detected from agent output
+    // Work items (issues / PRs) detected from agent output
     socket.on("workitems:updated", (data) => {
       setWorkItems(data.items || []);
     });
@@ -302,7 +302,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Work item tracker — shows all detected PRs and issues */}
+          {/* Work item tracker — shows all detected issues and PRs */}
           {workItems.length > 0 && showWorkTracker && (
             <div className="mt-4">
               <WorkItemTracker
