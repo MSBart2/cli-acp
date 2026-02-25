@@ -16,11 +16,11 @@ A beautiful web interface for orchestrating GitHub Copilot CLI agents across mul
 
 ## Architecture
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Node.js + Express + Socket.IO |
-| Frontend | React + Vite + Tailwind CSS |
-| ACP Integration | `@agentclientprotocol/sdk` |
+| Layer           | Technology                    |
+| --------------- | ----------------------------- |
+| Backend         | Node.js + Express + Socket.IO |
+| Frontend        | React + Vite + Tailwind CSS   |
+| ACP Integration | `@agentclientprotocol/sdk`    |
 
 Each repo gets its own `copilot --acp --stdio` process with an isolated ACP session.
 
@@ -57,10 +57,20 @@ Then open [http://localhost:5173](http://localhost:5173).
 
 ## Configuration
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Server port | `3001` |
-| `COPILOT_CLI_PATH` | Path to copilot CLI binary | `copilot` |
+### Environment Variables
+
+| Variable           | Description                              | Default              |
+| ------------------ | ---------------------------------------- | -------------------- |
+| `PORT`             | Server port                              | `3001`               |
+| `COPILOT_CLI_PATH` | Path to copilot CLI binary               | `copilot`            |
+| `REPO_BASE_DIR`    | Directory where repos are shallow-cloned | `<tmpdir>/acp-repos` |
+
+### UI Settings (in the header bar)
+
+| Setting            | Description                                                                                                                                                                                                                                                              | Default                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
+| **Clone to**       | Local directory where repos are cloned. Takes precedence over the `REPO_BASE_DIR` environment variable — effectively replacing it for the session.                                                                                                                       | `C:\users\rmathis\source` |
+| **Reuse existing** | When checked, uses the repo name as the folder (no random suffix) and skips cloning if the folder already exists. The agent runs against your local working copy — uncommitted changes may be read or modified. Reused folders are **not** deleted when the agent stops. | unchecked                 |
 
 ## How It Works
 
@@ -69,3 +79,17 @@ This project is built on the [Agent Client Protocol (ACP)](https://agentclientpr
 - Spawns one `copilot --acp --stdio` process per repository
 - Creates isolated sessions scoped to each repo's working directory
 - Streams agent responses in real-time to the browser via Socket.IO
+
+---
+
+Pick an Orchestrator:
+
+https://github.com/MSBart2/CopilotTraining
+
+Then some remote repos to talk to (Aninmalia is GIANT, so it's going to take a long time to clone/ready)
+
+https://github.com/MSBart2/FanHub
+
+https://github.com/rbmathis/Animalia
+
+https://github.com/rbmathis/flowlens

@@ -24,11 +24,9 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onPermissionRes
   const bottomRef = useRef(null);
   const status = statusConfig[agent.status] || statusConfig.initializing;
 
-  // Only render the most recent entries to keep the DOM lightweight
-  const MAX_VISIBLE = 200;
-  const visibleOutput = agent.output.length > MAX_VISIBLE
-    ? agent.output.slice(-MAX_VISIBLE)
-    : agent.output;
+  // Only show the last 3 output entries to keep cards compact
+  const MAX_VISIBLE = 3;
+  const visibleOutput = agent.output.slice(-MAX_VISIBLE);
   const truncatedCount = agent.output.length - visibleOutput.length;
 
   // Smooth-scroll to the bottom whenever new output arrives
@@ -67,6 +65,11 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onPermissionRes
                 {extractRepoName(agent.repoUrl)}
               </h3>
               <p className="text-xs text-gray-400 truncate">{agent.repoUrl}</p>
+              {agent.repoPath && (
+                <p className="text-xs text-gray-500 truncate font-mono" title={agent.repoPath}>
+                  {agent.repoPath}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 ml-3 shrink-0">
@@ -86,7 +89,7 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onPermissionRes
         {/* Output area — slightly taller with better text contrast */}
         <div
           ref={outputRef}
-          className="px-4 py-3 bg-black/40 font-mono text-sm leading-relaxed max-h-[450px] overflow-y-auto min-h-[140px]"
+          className="px-4 py-3 bg-black/40 font-mono text-sm leading-relaxed max-h-[140px] overflow-y-auto min-h-[80px]"
         >
           {/* Spawning progress indicator — shows step-by-step status */}
           {agent.status === "spawning" && (
@@ -188,7 +191,7 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onPermissionRes
             onKeyDown={handleKeyDown}
             placeholder={canSend ? "Send a prompt…" : "Agent is " + agent.status + "…"}
             disabled={!canSend}
-            className="flex-1 bg-white/10 border border-white/15 rounded-lg px-3 py-2.5 text-sm text-gray-50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-40 transition-all"
+            className="flex-1 bg-white/15 border border-white/25 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-40 transition-all"
           />
           <button
             onClick={handleSend}

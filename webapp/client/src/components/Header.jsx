@@ -1,11 +1,12 @@
 import React from "react";
-import { Terminal } from "lucide-react";
+import { Terminal, FolderOpen } from "lucide-react";
 
-export default function Header({ connected }) {
+export default function Header({ connected, repoBaseDir, onRepoBashDirChange, reuseExisting, onReuseExistingChange }) {
   return (
     <header className="border-b border-white/10 bg-white/[0.03] backdrop-blur-xl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
+        {/* Logo + title */}
+        <div className="flex items-center gap-3 shrink-0">
           <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 shadow-lg shadow-purple-500/20">
             <Terminal className="w-5 h-5 text-white" />
           </div>
@@ -19,7 +20,40 @@ export default function Header({ connected }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-sm">
+        {/* Repo base directory setting */}
+        <div className="flex-1 flex flex-col gap-1.5 px-4">
+          <div className="flex items-center gap-2">
+            <FolderOpen className="w-4 h-4 text-gray-500 shrink-0" />
+            <label className="text-xs text-gray-500 whitespace-nowrap shrink-0">Clone to</label>
+            <input
+              type="text"
+              value={repoBaseDir}
+              onChange={(e) => onRepoBashDirChange(e.target.value)}
+              placeholder="Local path for cloned repos"
+              className="flex-1 bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-xs text-gray-300 placeholder-gray-600 font-mono focus:outline-none focus:ring-1 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all"
+            />
+            {/* Reuse existing checkbox */}
+            <label className="flex items-center gap-1.5 whitespace-nowrap cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={reuseExisting}
+                onChange={(e) => onReuseExistingChange(e.target.checked)}
+                className="w-3.5 h-3.5 rounded accent-amber-400 cursor-pointer"
+              />
+              <span className="text-xs text-gray-400">Reuse existing</span>
+            </label>
+          </div>
+          {/* Warning shown only when reuse is enabled */}
+          {reuseExisting && (
+            <div className="flex items-center gap-1.5 text-amber-400 text-xs px-1">
+              <span>⚠</span>
+              <span>Reuse mode: agent runs against your local working copy — uncommitted changes may be modified.</span>
+            </div>
+          )}
+        </div>
+
+        {/* Connection indicator */}
+        <div className="flex items-center gap-2 text-sm shrink-0">
           <span
             className={`w-2.5 h-2.5 rounded-full transition-colors ${
               connected ? "bg-green-400 shadow-lg shadow-green-400/50" : "bg-red-400 shadow-lg shadow-red-400/50 animate-pulse"

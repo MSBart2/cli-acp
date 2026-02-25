@@ -5,6 +5,7 @@ import Header from "./components/Header";
 import RepoInput from "./components/RepoInput";
 import AgentCard from "./components/AgentCard";
 import OrchestratorCard from "./components/OrchestratorCard";
+import OrchestratorInput from "./components/OrchestratorInput";
 import BroadcastInput from "./components/BroadcastInput";
 import BroadcastResults from "./components/BroadcastResults";
 
@@ -16,6 +17,8 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResults, setBroadcastResults] = useState(null);
+  const [repoBaseDir, setRepoBaseDir] = useState("C:\\users\\rmathis\\source");
+  const [reuseExisting, setReuseExisting] = useState(true);
 
   useEffect(() => {
     socket.on("connect", () => setConnected(true));
@@ -53,6 +56,7 @@ export default function App() {
             agentId: data.agentId,
             repoUrl: data.repoUrl,
             repoName: data.repoName,
+            repoPath: data.repoPath || existing?.repoPath || null,
             role: data.role || existing?.role || "worker",
             status: data.status || "ready",
             spawnStep: null,
@@ -181,8 +185,8 @@ export default function App() {
   }, []);
 
   const handleLaunchAgent = useCallback((repoUrl, role = "worker") => {
-    socket.emit("agent:create", { repoUrl, role });
-  }, []);
+    socket.emit("agent:create", { repoUrl, role, repoBaseDir, reuseExisting });
+  }, [repoBaseDir, reuseExisting]);
 
   const handleSendPrompt = useCallback((agentId, text) => {
     socket.emit("agent:prompt", { agentId, text });
@@ -240,67 +244,74 @@ export default function App() {
       </div>
 
       <div className="relative">
-        <Header connected={connected} />
+        <Header
+          connected={connected}
+          repoBaseDir={repoBaseDir}
+          onRepoBashDirChange={setRepoBaseDir}
+          reuseExisting={reuseExisting}
+          onReuseExistingChange={setReuseExisting}
+        />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <RepoInput onLaunch={handleLaunchAgent} connected={connected} hasOrchestrator={hasOrchestrator} />
-
-          {/* Orchestrator card — full-width, always above everything else */}
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+          {/* ── Orchestrator section ── always first */}
+          {!orchestrator && (
+            <OrchestratorInput onLaunch={handleLaunchAgent} connected={connected} />
+          )}
           {orchestrator && (
-            <div className="mt-6">
-              <OrchestratorCard
-                agent={orchestrator}
-                onSendPrompt={handleSendPrompt}
-                onStop={handleStopAgent}
-                onPermissionResponse={handlePermissionResponse}
-              />
-            </div>
+            <OrchestratorCard
+              agent={orchestrator}
+              onSendPrompt={handleSendPrompt}
+              onStop={handleStopAgent}
+              onPermissionResponse={handlePermissionResponse}
+            />
           )}
 
-          {/* Show the broadcast bar once there are worker agents to target */}
-          {workers.length > 0 && (
-            <div className="mt-6">
-              <BroadcastInput
-                onBroadcast={handleBroadcastPrompt}
-                readyCount={readyCount}
-                totalCount={workers.length}
-                broadcasting={broadcasting}
-                hasOrchestrator={hasOrchestrator}
-              />
-            </div>
-          )}
-
-          {/* Coalesced broadcast results — appears after a broadcast wave completes */}
-          {broadcastResults && (
-            <div className="mt-4">
-              <BroadcastResults
-                broadcastResults={broadcastResults}
-                onDismiss={() => setBroadcastResults(null)}
-              />
-            </div>
-          )}
-
-          {workers.length > 0 && (
-            <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {workers.map((agent) => (
-                <AgentCard
-                  key={agent.agentId}
-                  agent={agent}
-                  onSendPrompt={handleSendPrompt}
-                  onStop={handleStopAgent}
-                  onPermissionResponse={handlePermissionResponse}
+          {/* ── Worker section — show once orchestrator is past initial setup ── */}
+          {orchestrator && !["spawning", "initializing"].includes(orchestrator.status) && (
+            <div className="space-y-6">
+              {/* Broadcast bar — only when there are workers to target */}
+              {workers.length > 0 && (
+                <BroadcastInput
+                  onBroadcast={handleBroadcastPrompt}
+                  readyCount={readyCount}
+                  totalCount={workers.length}
+                  broadcasting={broadcasting}
+                  hasOrchestrator={hasOrchestrator}
                 />
-              ))}
+              )}
+
+              {/* Worker grid — RepoInput always appears as the last card */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {workers.map((agent) => (
+                  <AgentCard
+                    key={agent.agentId}
+                    agent={agent}
+                    onSendPrompt={handleSendPrompt}
+                    onStop={handleStopAgent}
+                    onPermissionResponse={handlePermissionResponse}
+                  />
+                ))}
+                <RepoInput onLaunch={handleLaunchAgent} connected={connected} />
+              </div>
+
+              {/* Broadcast results — below all worker cards */}
+              {broadcastResults && (
+                <BroadcastResults
+                  broadcastResults={broadcastResults}
+                  onDismiss={() => setBroadcastResults(null)}
+                />
+              )}
             </div>
           )}
 
+          {/* Empty state — no agents at all */}
           {agentList.length === 0 && (
-            <div className="mt-20 text-center">
+            <div className="mt-16 text-center">
               <div className="inline-flex p-4 rounded-2xl bg-white/[0.03] border border-white/10 mb-5">
                 <Terminal className="w-8 h-8 text-purple-400/60" />
               </div>
               <p className="text-lg text-gray-300 font-medium">No agents running</p>
-              <p className="text-sm text-gray-500 mt-1">Enter a repository URL above to launch your first agent.</p>
+              <p className="text-sm text-gray-500 mt-1">Enter an orchestrator repo URL above to get started.</p>
             </div>
           )}
         </main>

@@ -18,7 +18,8 @@ import { isValidGitUrl, repoNameFromUrl } from "./helpers.js";
 
 const PORT = process.env.PORT || 3001;
 const COPILOT_CLI_PATH = process.env.COPILOT_CLI_PATH || "copilot";
-const REPO_BASE_DIR = join(tmpdir(), "acp-repos");
+const REPO_BASE_DIR = process.env.REPO_BASE_DIR || join(tmpdir(), "acp-repos");
+const PROMPT_TIMEOUT_MS = 60 * 1000; // 1 minute
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -58,18 +59,50 @@ let activeBroadcastWave = null;
 // ---------------------------------------------------------------------------
 
 /**
- * Clone a repository to a temp directory.
- * Returns the absolute path of the cloned directory.
+ * Wraps a promise with a timeout. Rejects if the promise doesn't settle within the timeout.
+ * @param {Promise} promise - The promise to wrap
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @param {string} errorMessage - Error message to use if timeout occurs
+ * @returns {Promise}
  */
-function cloneRepo(repoUrl) {
+function withTimeout(promise, timeoutMs, errorMessage) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(errorMessage)), timeoutMs),
+    ),
+  ]);
+}
+
+/**
+ * Clone a repository to a directory.
+ * @param {string} repoUrl      HTTPS git URL to clone
+ * @param {string} [baseDir]    Override the base directory (falls back to REPO_BASE_DIR)
+ * @param {boolean} [reuseExisting]  When true, use the repo name as the folder (no UUID suffix)
+ *                              and skip cloning if the folder already exists.
+ * @returns {Promise<{repoPath: string, reused: boolean}>}
+ */
+function cloneRepo(repoUrl, baseDir, reuseExisting = false) {
   return new Promise((resolve, reject) => {
-    mkdirSync(REPO_BASE_DIR, { recursive: true });
+    // Per-request override takes precedence over the env/default base dir
+    const effectiveBase =
+      baseDir && baseDir.trim() ? baseDir.trim() : REPO_BASE_DIR;
+    mkdirSync(effectiveBase, { recursive: true });
 
     const repoName = repoNameFromUrl(repoUrl);
-    const repoPath = join(
-      REPO_BASE_DIR,
-      `${repoName}-${randomUUID().slice(0, 8)}`,
-    );
+
+    // When reusing, use a stable folder name (repo name only, no UUID suffix)
+    // so repeated launches hit the same directory.
+    const folderName = reuseExisting
+      ? repoName
+      : `${repoName}-${randomUUID().slice(0, 8)}`;
+    const repoPath = join(effectiveBase, folderName);
+
+    // If the folder already exists and reuse is enabled, skip cloning entirely
+    if (reuseExisting && existsSync(repoPath)) {
+      console.log(`[clone] Reusing existing folder: ${repoPath}`);
+      return resolve({ repoPath, reused: true });
+    }
 
     console.log(`[clone] Cloning ${repoUrl} → ${repoPath}`);
 
@@ -85,7 +118,7 @@ function cloneRepo(repoUrl) {
     git.on("close", (code) => {
       if (code === 0) {
         console.log(`[clone] Done: ${repoPath}`);
-        resolve(repoPath);
+        resolve({ repoPath, reused: false });
       } else {
         reject(new Error(`git clone failed (exit ${code}): ${stderr.trim()}`));
       }
@@ -103,8 +136,16 @@ function cloneRepo(repoUrl) {
  * @param {object} socket  Socket.IO socket
  * @param {string} repoUrl HTTPS Git URL
  * @param {"orchestrator"|"worker"} role  Agent role — only one orchestrator allowed
+ * @param {string} [repoBaseDir]  Client-supplied base directory for cloning (overrides REPO_BASE_DIR)
+ * @param {boolean} [reuseExisting]  Reuse existing cloned folder instead of creating a fresh one
  */
-async function createAgent(socket, repoUrl, role = "worker") {
+async function createAgent(
+  socket,
+  repoUrl,
+  role = "worker",
+  repoBaseDir,
+  reuseExisting = false,
+) {
   // Enforce single-orchestrator rule
   if (role === "orchestrator") {
     const existing = [...agents.values()].find(
@@ -130,12 +171,19 @@ async function createAgent(socket, repoUrl, role = "worker") {
     repoName,
     role,
     step: "cloning",
-    message: "Cloning repository…",
+    message: reuseExisting
+      ? "Checking for existing clone…"
+      : "Cloning repository…",
   });
 
   let repoPath;
+  let repoReused = false;
   try {
-    repoPath = await cloneRepo(repoUrl);
+    ({ repoPath, reused: repoReused } = await cloneRepo(
+      repoUrl,
+      repoBaseDir,
+      reuseExisting,
+    ));
   } catch (err) {
     console.error(`[agent:create] Clone failed: ${err.message}`);
     socket.emit("agent:error", {
@@ -294,6 +342,8 @@ async function createAgent(socket, repoUrl, role = "worker") {
     repoUrl,
     repoName,
     repoPath,
+    // Track whether we reused an existing folder so cleanup skips deletion
+    repoReused,
     role,
     status: "initializing",
     permissionResolver: null,
@@ -364,6 +414,7 @@ async function createAgent(socket, repoUrl, role = "worker") {
       agentId,
       repoUrl,
       repoName,
+      repoPath,
       role,
       status: "ready",
     });
@@ -386,26 +437,35 @@ io.on("connection", (socket) => {
   console.log(`[socket] Client connected: ${socket.id}`);
 
   // -- Create a new agent for a repo --
-  socket.on("agent:create", async ({ repoUrl, role }) => {
-    if (!repoUrl || typeof repoUrl !== "string") {
-      socket.emit("agent:error", {
-        agentId: null,
-        error: "repoUrl is required",
-      });
-      return;
-    }
-    if (!isValidGitUrl(repoUrl)) {
-      socket.emit("agent:error", {
-        agentId: null,
-        error: "Invalid repository URL. Only HTTPS Git URLs are supported.",
-      });
-      return;
-    }
-    console.log(
-      `[socket] agent:create \u2192 ${repoUrl} (role: ${role || "worker"})`,
-    );
-    await createAgent(socket, repoUrl, role || "worker");
-  });
+  socket.on(
+    "agent:create",
+    async ({ repoUrl, role, repoBaseDir, reuseExisting }) => {
+      if (!repoUrl || typeof repoUrl !== "string") {
+        socket.emit("agent:error", {
+          agentId: null,
+          error: "repoUrl is required",
+        });
+        return;
+      }
+      if (!isValidGitUrl(repoUrl)) {
+        socket.emit("agent:error", {
+          agentId: null,
+          error: "Invalid repository URL. Only HTTPS Git URLs are supported.",
+        });
+        return;
+      }
+      console.log(
+        `[socket] agent:create \u2192 ${repoUrl} (role: ${role || "worker"}) base: ${repoBaseDir || REPO_BASE_DIR} reuse: ${!!reuseExisting}`,
+      );
+      await createAgent(
+        socket,
+        repoUrl,
+        role || "worker",
+        repoBaseDir,
+        reuseExisting,
+      );
+    },
+  );
 
   // -- Send a prompt to an existing agent --
   socket.on("agent:prompt", async ({ agentId, text }) => {
@@ -423,16 +483,26 @@ io.on("connection", (socket) => {
     }
 
     console.log(
-      `[socket] agent:prompt → ${agentId.slice(0, 8)}: ${text.slice(0, 80)}`,
+      `[socket] agent:prompt → ${agentId.slice(0, 8)} (${agent.repoName}): ${text.slice(0, 80)}`,
     );
     agent.status = "busy";
     socket.emit("agent:update", { agentId, type: "status", content: "busy" });
 
+    const startTime = Date.now();
     try {
-      const result = await agent.connection.prompt({
-        sessionId: agent.sessionId,
-        prompt: [{ type: "text", text }],
-      });
+      const result = await withTimeout(
+        agent.connection.prompt({
+          sessionId: agent.sessionId,
+          prompt: [{ type: "text", text }],
+        }),
+        PROMPT_TIMEOUT_MS,
+        `Prompt timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
+      );
+
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(
+        `[agent:prompt] ${agentId.slice(0, 8)} completed in ${duration}s (${result.stopReason})`,
+      );
 
       agent.status = "ready";
       socket.emit("agent:prompt_complete", {
@@ -440,7 +510,10 @@ io.on("connection", (socket) => {
         stopReason: result.stopReason,
       });
     } catch (err) {
-      console.error(`[agent:prompt] Error: ${err.message}`);
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.error(
+        `[agent:prompt] ${agentId.slice(0, 8)} failed after ${duration}s: ${err.message}`,
+      );
       agent.status = "error";
       socket.emit("agent:error", {
         agentId,
@@ -461,7 +534,7 @@ io.on("connection", (socket) => {
     }
 
     console.log(
-      `[socket] agent:permission_response → ${agentId.slice(0, 8)}: ${optionId}`,
+      `[socket] agent:permission_response → ${agentId.slice(0, 8)} (${agent.repoName}): ${optionId}`,
     );
 
     agent.permissionResolver({
@@ -531,11 +604,25 @@ io.on("connection", (socket) => {
 
     // Fan out prompts — each runs independently so one failure doesn't block others
     const promises = readyAgents.map(async ([agentId, agent]) => {
+      const startTime = Date.now();
       try {
-        const result = await agent.connection.prompt({
-          sessionId: agent.sessionId,
-          prompt: [{ type: "text", text }],
-        });
+        console.log(
+          `[agent:prompt_all] Starting ${agentId.slice(0, 8)} (${agent.repoName})`,
+        );
+
+        const result = await withTimeout(
+          agent.connection.prompt({
+            sessionId: agent.sessionId,
+            prompt: [{ type: "text", text }],
+          }),
+          PROMPT_TIMEOUT_MS,
+          `Broadcast prompt timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
+        );
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(
+          `[agent:prompt_all] ${agentId.slice(0, 8)} completed in ${duration}s (${result.stopReason})`,
+        );
 
         agent.status = "ready";
         if (activeBroadcastWave?.participants.has(agentId)) {
@@ -546,8 +633,9 @@ io.on("connection", (socket) => {
           stopReason: result.stopReason,
         });
       } catch (err) {
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
         console.error(
-          `[agent:prompt_all] Error on ${agentId.slice(0, 8)}: ${err.message}`,
+          `[agent:prompt_all] ${agentId.slice(0, 8)} (${agent.repoName}) failed after ${duration}s: ${err.message}`,
         );
         agent.status = "error";
         if (activeBroadcastWave?.participants.has(agentId)) {
@@ -615,7 +703,7 @@ io.on("connection", (socket) => {
             : "");
 
         console.log(
-          `[orchestrator] Auto-forwarding broadcast results to orchestrator ${orchestratorId?.slice(0, 8)}`,
+          `[orchestrator] Auto-forwarding broadcast results to orchestrator ${orchestratorId?.slice(0, 8)} (${orchestrator.repoName})`,
         );
 
         orchestrator.status = "busy";
@@ -625,13 +713,22 @@ io.on("connection", (socket) => {
           content: "busy",
         });
 
-        // Fire-and-forget — the orchestrator works asynchronously
-        orchestrator.connection
-          .prompt({
+        const startTime = Date.now();
+
+        // Fire-and-forget with timeout — the orchestrator works asynchronously
+        withTimeout(
+          orchestrator.connection.prompt({
             sessionId: orchestrator.sessionId,
             prompt: [{ type: "text", text: synthesisPrompt }],
-          })
+          }),
+          PROMPT_TIMEOUT_MS,
+          `Orchestrator synthesis timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
+        )
           .then((result) => {
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.log(
+              `[orchestrator] ${orchestratorId?.slice(0, 8)} synthesis completed in ${duration}s (${result.stopReason})`,
+            );
             orchestrator.status = "ready";
             socket.emit("agent:prompt_complete", {
               agentId: orchestratorId,
@@ -639,7 +736,10 @@ io.on("connection", (socket) => {
             });
           })
           .catch((err) => {
-            console.error(`[orchestrator] Synthesis failed: ${err.message}`);
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.error(
+              `[orchestrator] ${orchestratorId?.slice(0, 8)} synthesis failed after ${duration}s: ${err.message}`,
+            );
             orchestrator.status = "error";
             socket.emit("agent:error", {
               agentId: orchestratorId,
@@ -675,15 +775,21 @@ function stopAgent(agentId) {
     /* already dead */
   }
 
-  // Best-effort removal of the cloned repo
-  try {
-    if (agent.repoPath && existsSync(agent.repoPath)) {
-      rmSync(agent.repoPath, { recursive: true, force: true });
-    }
-  } catch (err) {
-    console.warn(
-      `[cleanup] Could not remove ${agent.repoPath}: ${err.message}`,
+  // Best-effort removal of the cloned repo — skip if folder was reused (not owned by us)
+  if (agent.repoReused) {
+    console.log(
+      `[cleanup] Skipping folder removal for reused path: ${agent.repoPath}`,
     );
+  } else {
+    try {
+      if (agent.repoPath && existsSync(agent.repoPath)) {
+        rmSync(agent.repoPath, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.warn(
+        `[cleanup] Could not remove ${agent.repoPath}: ${err.message}`,
+      );
+    }
   }
 
   agents.delete(agentId);

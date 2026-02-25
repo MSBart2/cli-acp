@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Send, Network, Loader2 } from "lucide-react";
+import { X, Send, Network, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 
 /**
  * OrchestratorCard — a full-width, visually distinct card for the
@@ -28,6 +28,7 @@ export default function OrchestratorCard({
   onPermissionResponse,
 }) {
   const [input, setInput] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
   const bottomRef = useRef(null);
   const status = statusConfig[agent.status] || statusConfig.initializing;
 
@@ -63,8 +64,11 @@ export default function OrchestratorCard({
   return (
     <div className="relative rounded-xl p-[1px] bg-gradient-to-r from-teal-500/50 via-cyan-500/50 to-teal-500/50">
       <div className="rounded-xl bg-[#0d0d14] p-5">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-4">
+        {/* Header — click anywhere (except stop button) to collapse/expand */}
+        <div
+          className={`flex items-center gap-3 cursor-pointer ${collapsed ? "" : "mb-4"}`}
+          onClick={() => setCollapsed((c) => !c)}
+        >
           <div className="p-2 rounded-lg bg-teal-500/10 border border-teal-500/20">
             <Network className="w-5 h-5 text-teal-400" />
           </div>
@@ -81,10 +85,15 @@ export default function OrchestratorCard({
             <p className="text-xs text-gray-500 truncate mt-0.5">
               {agent.repoName}
             </p>
+            {agent.repoPath && (
+              <p className="text-xs text-gray-600 truncate font-mono" title={agent.repoPath}>
+                {agent.repoPath}
+              </p>
+            )}
           </div>
 
-          {/* Status badge */}
-          <div className="flex items-center gap-2">
+          {/* Status badge + collapse toggle + stop */}
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-1.5">
               <div
                 className={`w-2 h-2 rounded-full ${status.color} ${
@@ -96,6 +105,16 @@ export default function OrchestratorCard({
               </span>
             </div>
             <button
+              onClick={() => setCollapsed((c) => !c)}
+              className="p-1.5 rounded-md hover:bg-white/10 text-gray-500 hover:text-teal-400 transition-colors"
+              title={collapsed ? "Expand" : "Collapse"}
+            >
+              {collapsed
+                ? <ChevronDown className="w-4 h-4" />
+                : <ChevronUp className="w-4 h-4" />
+              }
+            </button>
+            <button
               onClick={() => onStop(agent.agentId)}
               className="p-1.5 rounded-md hover:bg-white/10 text-gray-500 hover:text-red-400 transition-colors"
               title="Stop orchestrator"
@@ -106,7 +125,7 @@ export default function OrchestratorCard({
         </div>
 
         {/* Spawning progress */}
-        {isSpawning && (
+        {!collapsed && isSpawning && (
           <div className="mb-4 flex items-center gap-4">
             {spawnSteps.map((step, i) => (
               <div key={step} className="flex items-center gap-2">
@@ -141,7 +160,7 @@ export default function OrchestratorCard({
         )}
 
         {/* Output stream */}
-        {!isSpawning && (
+        {!collapsed && !isSpawning && (
           <div className="bg-[#0a0a10] rounded-lg border border-white/10 mb-4 max-h-64 overflow-y-auto">
             <div className="p-4 space-y-1.5">
               {truncatedCount > 0 && (
@@ -183,7 +202,7 @@ export default function OrchestratorCard({
         )}
 
         {/* Permission banner */}
-        {agent.pendingPermission && (
+        {!collapsed && agent.pendingPermission && (
           <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
             <p className="text-sm text-amber-200 font-medium mb-2">
               {agent.pendingPermission.title}
@@ -211,7 +230,7 @@ export default function OrchestratorCard({
         )}
 
         {/* Prompt input */}
-        {!isSpawning && (
+        {!collapsed && !isSpawning && (
           <div className="flex gap-2">
             <input
               type="text"
@@ -222,7 +241,7 @@ export default function OrchestratorCard({
               disabled={
                 agent.status === "busy" || agent.status === "initializing"
               }
-              className="flex-1 bg-white/10 border border-white/15 rounded-lg px-4 py-2.5 text-sm text-gray-50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-400/50 disabled:opacity-40 transition-all"
+              className="flex-1 bg-white/15 border border-white/25 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-400/50 disabled:opacity-40 transition-all"
             />
             <button
               onClick={handleSend}

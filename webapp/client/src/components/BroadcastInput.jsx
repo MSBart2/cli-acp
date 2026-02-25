@@ -37,7 +37,7 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, br
         <div className="flex items-center gap-2 mb-3">
           <Radio className="w-4 h-4 text-teal-400" />
           <h2 className="text-sm font-semibold text-gray-200">Broadcast to All Agents</h2>
-          <span className="text-xs text-gray-500 ml-auto">
+          <span className="text-xs text-emerald-400 ml-auto">
             {readyCount} of {totalCount} agent{totalCount !== 1 ? "s" : ""} ready
           </span>
         </div>
@@ -51,7 +51,7 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, br
               placeholder="Send a prompt to all agents… (Ctrl+Enter to send)"
               disabled={broadcasting}
               rows={2}
-              className="flex-1 bg-white/10 border border-white/15 rounded-lg px-4 py-3 text-sm text-gray-50 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-400/50 disabled:opacity-40 transition-all resize-none"
+              className="flex-1 bg-white/15 border border-white/25 rounded-lg px-4 py-3 text-sm text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-400/50 disabled:opacity-40 transition-all resize-none"
             />
             <button
               type="submit"
@@ -91,7 +91,7 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, br
                   placeholder="Guide the orchestrator — e.g. 'Create a parent issue that references each child issue URL…'"
                   disabled={broadcasting}
                   rows={2}
-                  className="mt-2 w-full bg-teal-950/30 border border-teal-500/20 rounded-lg px-4 py-3 text-sm text-gray-50 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400/40 disabled:opacity-40 transition-all resize-none"
+                  className="mt-2 w-full bg-teal-950/40 border border-teal-500/30 rounded-lg px-4 py-3 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400/40 disabled:opacity-40 transition-all resize-none"
                 />
               )}
             </div>
