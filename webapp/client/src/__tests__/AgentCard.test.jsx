@@ -110,15 +110,16 @@ describe("AgentCard", () => {
     expect(screen.getByText("Deny")).toBeInTheDocument();
   });
 
-  it("shows truncation notice when output exceeds 200 entries", () => {
-    const output = Array.from({ length: 210 }, (_, i) => ({
+  it("shows truncation notice when output exceeds MAX_VISIBLE entries", () => {
+    // AgentCard uses MAX_VISIBLE = 3, so 10 entries shows "7 earlier messages hidden"
+    const output = Array.from({ length: 10 }, (_, i) => ({
       type: "text",
       content: `Line ${i}`,
     }));
     render(
       <AgentCard agent={makeAgent({ output })} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} />
     );
-    expect(screen.getByText(/10 earlier messages hidden/)).toBeInTheDocument();
+    expect(screen.getByText(/7 earlier messages? hidden/)).toBeInTheDocument();
   });
 
   it("calls onStop when the close button is clicked", () => {

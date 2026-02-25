@@ -31,7 +31,8 @@ describe("BroadcastInput", () => {
     const textarea = screen.getByPlaceholderText(/Send a prompt to all agents/);
     fireEvent.change(textarea, { target: { value: "  Update docs  " } });
     fireEvent.submit(textarea.closest("form"));
-    expect(onBroadcast).toHaveBeenCalledWith("Update docs", undefined);
+    // 3rd arg is targetedRepos — undefined when no @mentions present
+    expect(onBroadcast).toHaveBeenCalledWith("Update docs", undefined, undefined);
   });
 
   it("clears the textarea after submitting", () => {
@@ -108,7 +109,8 @@ describe("BroadcastInput", () => {
     });
 
     fireEvent.submit(screen.getByPlaceholderText(/Send a prompt to all agents/).closest("form"));
-    expect(onBroadcast).toHaveBeenCalledWith("Audit docs", "Create parent issue");
+    // 3rd arg is targetedRepos — undefined when no @mentions present
+    expect(onBroadcast).toHaveBeenCalledWith("Audit docs", "Create parent issue", undefined);
   });
 
   it("clears synthesis instructions after submitting", () => {
