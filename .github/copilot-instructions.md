@@ -1,5 +1,10 @@
 # Copilot Instructions — ACP Agent Orchestrator
 
+> **For detailed architecture, data flow, and implementation reference, see
+> [`ARCHITECTURE.md`](../ARCHITECTURE.md).** Use that document to understand
+> how the codebase is organized, what each component does, and where to make
+> changes.
+
 ## Project Overview
 
 This is the **ACP Agent Orchestrator**, a web UI that spawns and manages multiple
@@ -8,6 +13,18 @@ GitHub Copilot CLI agents across different repositories using the
 
 Each repository gets its own `copilot --acp --stdio` child process with an
 isolated ACP session scoped to that repo's working directory.
+
+## Quick Navigation
+
+| I want to...                        | Look at...                                  |
+| ----------------------------------- | ------------------------------------------- |
+| Understand the overall architecture | [`ARCHITECTURE.md`](../ARCHITECTURE.md)     |
+| See the demo scenario               | [`SCENARIO.md`](../SCENARIO.md)             |
+| Add a Socket.IO event               | `server/index.js` + `client/src/App.jsx`    |
+| Add a new UI component              | `client/src/components/` + update `App.jsx` |
+| Modify URL validation               | `server/helpers.js` → `isValidGitUrl()`     |
+| Add server-side tests               | `server/__tests__/` (Vitest)                |
+| Add client-side tests               | `client/src/__tests__/` (Vitest + RTL)      |
 
 ## Repository Structure
 
@@ -59,20 +76,54 @@ webapp/
 
 ## Code Style & Conventions
 
+### JavaScript / Node.js
+
 - **ES Modules everywhere** — both `server/` and `client/` use
   `"type": "module"`. Always use `import`/`export`, never `require`.
-- **React functional components only** — use hooks (`useState`, `useEffect`,
-  `useCallback`, `useRef`). No class components.
+- **Async/await over raw promises** — use `async`/`await` for readability;
+  avoid `.then()` chains unless composing multiple promises.
+- **Destructure early** — destructure function parameters and imports at the
+  top to surface dependencies clearly.
+- **Const by default** — use `const` unless reassignment is required; avoid
+  `var` entirely.
+- **JSDoc on public helpers** — add `@param` / `@returns` / `@typedef`
+  annotations to exported or shared functions in the server.
+- **Error-first callbacks are banned** — this codebase uses promises; do not
+  introduce callback-style error handling.
+
+### React / Frontend
+
+- **Functional components only** — use hooks (`useState`, `useEffect`,
+  `useCallback`, `useRef`, `useMemo`). No class components.
+- **One component per file** — component name must match the filename.
+- **Props destructuring in signature** — `function Foo({ bar, baz })` not
+  `function Foo(props)`.
 - **Tailwind CSS for all styling** — no CSS modules, no styled-components.
   Follow the existing dark-theme / glassmorphism aesthetic
   (`bg-white/5 backdrop-blur-xl`, gradient borders, etc.).
 - **`lucide-react`** for icons — import individual icons by name.
 - **Prefer named exports** except for React page/component default exports.
+- **Keep components ≤ 250 lines** — extract sub-components or hooks when a
+  file grows beyond this.
+
+### Naming Conventions
+
+| Entity           | Convention         | Example                              |
+| ---------------- | ------------------ | ------------------------------------ |
+| React component  | PascalCase         | `AgentCard.jsx`                      |
+| Hook             | camelCase, `use`-  | `useBroadcast()`                     |
+| Utility function | camelCase          | `isValidGitUrl()`                    |
+| Constant         | UPPER_SNAKE_CASE   | `PROMPT_INACTIVITY_TIMEOUT_MS`       |
+| Socket.IO event  | `namespace:action` | `agent:create`, `broadcast:progress` |
+| CSS class        | Tailwind utilities | `bg-purple-500/30`                   |
+
+### Comments & Documentation
+
 - **Educational comments** — when generating code, include brief comments that
   explain _why_ something is done, not just _what_. Help future readers
   understand the reasoning behind non-obvious decisions.
-- **JSDoc on public helpers** — add `@param` / `@returns` annotations to
-  exported or shared functions in the server.
+- **TODO format** — `// TODO(username): description` with your GitHub handle.
+- **No commented-out code** — delete dead code; git has history.
 
 ## Building & Running
 
@@ -128,16 +179,38 @@ aligned with the demo narrative.
 
 ## Testing
 
-Testing is planned but not yet set up. When adding tests:
+Both client and server use **Vitest**. Tests live next to the code they cover:
 
-- Use **Vitest** for the React client (it integrates naturally with Vite).
-- Use Node's built-in test runner or **Vitest** for the server.
-- Prioritise tests around ACP session lifecycle, permission flow, and URL
-  validation.
+| Layer  | Location                       | Run                            |
+| ------ | ------------------------------ | ------------------------------ |
+| Server | `webapp/server/__tests__/`     | `cd webapp/server && npm test` |
+| Client | `webapp/client/src/__tests__/` | `cd webapp/client && npm test` |
+
+### Testing Conventions
+
+- **Test file naming** — `ComponentName.test.jsx` or `helperName.test.js`.
+- **Testing Library** — use `@testing-library/react` for component tests;
+  query by accessible role/text, not implementation details.
+- **Arrange-Act-Assert** — structure tests with clear setup, action, and
+  assertion phases.
+- **Mock Socket.IO sparingly** — most component tests render in isolation
+  without needing a socket mock.
+- **One assertion focus per test** — a test should verify one behaviour;
+  split multi-step scenarios into separate tests.
+
+### Coverage Priorities
+
+1. **Server helpers** — URL validation, repo naming, work-item extraction.
+2. **Component states** — spawning, ready, busy, error, permission pending.
+3. **User interactions** — button clicks, form submissions, keyboard events.
+4. **Edge cases** — empty input, disconnection, truncated output.
+
+Integration / E2E tests (Playwright) are a future addition.
 
 ## Environment Variables
 
-| Variable           | Description                    | Default   |
-| ------------------ | ------------------------------ | --------- |
-| `PORT`             | Server listen port             | `3001`    |
-| `COPILOT_CLI_PATH` | Path to the Copilot CLI binary | `copilot` |
+| Variable           | Description                    | Default              |
+| ------------------ | ------------------------------ | -------------------- |
+| `PORT`             | Server listen port             | `3001`               |
+| `COPILOT_CLI_PATH` | Path to the Copilot CLI binary | `copilot`            |
+| `REPO_BASE_DIR`    | Where repos are shallow-cloned | `<tmpdir>/acp-repos` |
