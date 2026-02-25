@@ -241,19 +241,27 @@ export default function App() {
     });
   }, []);
 
-  /** Fan-out: send the same prompt to every ready agent at once */
-  const handleBroadcastPrompt = useCallback((text, synthesisInstructions) => {
+  /** Fan-out: send the same prompt to every ready agent at once, or only to @mentioned ones */
+  const handleBroadcastPrompt = useCallback((text, synthesisInstructions, targetRepoNames) => {
     setBroadcasting(true);
     // Clear previous results when a new broadcast starts
     setBroadcastResults(null);
-    socket.emit("agent:prompt_all", { text, synthesisInstructions });
+    socket.emit("agent:prompt_all", { text, synthesisInstructions, targetRepoNames });
 
-    // Optimistically mark every ready worker agent as busy
+    // Optimistically mark targeted (or all, if no targeting) ready workers as busy
+    const targetSet = targetRepoNames?.length
+      ? new Set(targetRepoNames.map((n) => n.toLowerCase()))
+      : null;
     setAgents((prev) => {
       const next = { ...prev };
       for (const id of Object.keys(next)) {
-        if (next[id].status === "ready" && next[id].role !== "orchestrator") {
-          next[id] = { ...next[id], status: "busy" };
+        const a = next[id];
+        if (
+          a.status === "ready" &&
+          a.role !== "orchestrator" &&
+          (!targetSet || targetSet.has(a.repoName.toLowerCase()))
+        ) {
+          next[id] = { ...a, status: "busy" };
         }
       }
       return next;
@@ -263,7 +271,11 @@ export default function App() {
   const agentList = Object.values(agents);
   const orchestrator = agentList.find((a) => a.role === "orchestrator");
   const workers = agentList.filter((a) => a.role !== "orchestrator");
+  const workerRepoNames = workers.map((a) => a.repoName);
   const readyCount = workers.filter((a) => a.status === "ready").length;
+  const busyCount = workers.filter((a) => a.status === "busy").length;
+  const errorCount = workers.filter((a) => a.status === "error").length;
+  const spawningCount = workers.filter((a) => ["spawning", "initializing"].includes(a.status)).length;
   const hasOrchestrator = Boolean(orchestrator);
 
   return (
@@ -306,8 +318,12 @@ export default function App() {
                   onBroadcast={handleBroadcastPrompt}
                   readyCount={readyCount}
                   totalCount={workers.length}
+                  busyCount={busyCount}
+                  errorCount={errorCount}
+                  spawningCount={spawningCount}
                   broadcasting={broadcasting}
                   hasOrchestrator={hasOrchestrator}
+                  workerRepoNames={workerRepoNames}
                 />
               )}
 

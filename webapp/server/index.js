@@ -19,7 +19,11 @@ import { isValidGitUrl, repoNameFromUrl, extractWorkItems } from "./helpers.js";
 const PORT = process.env.PORT || 3001;
 const COPILOT_CLI_PATH = process.env.COPILOT_CLI_PATH || "copilot";
 const REPO_BASE_DIR = process.env.REPO_BASE_DIR || join(tmpdir(), "acp-repos");
-const PROMPT_TIMEOUT_MS = 60 * 1000; // 1 minute
+// Inactivity timeout: how long a prompt can go without ANY streaming activity
+// (text chunk, tool call, etc.) before we consider it truly stalled.
+// This is intentionally generous — a busy agent doing file I/O or long tool
+// calls may be silent for several minutes between updates.
+const PROMPT_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes of silence
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -74,10 +78,12 @@ let activeBroadcastWave = null;
 // ---------------------------------------------------------------------------
 
 /**
- * Wraps a promise with a timeout. Rejects if the promise doesn't settle within the timeout.
- * @param {Promise} promise - The promise to wrap
- * @param {number} timeoutMs - Timeout in milliseconds
- * @param {string} errorMessage - Error message to use if timeout occurs
+ * Wraps a promise with a fixed wall-clock timeout. Use this for short, bounded
+ * operations like initialize() and newSession() where activity-based keepalives
+ * don't apply.
+ * @param {Promise} promise
+ * @param {number} timeoutMs
+ * @param {string} errorMessage
  * @returns {Promise}
  */
 function withTimeout(promise, timeoutMs, errorMessage) {
@@ -87,6 +93,46 @@ function withTimeout(promise, timeoutMs, errorMessage) {
       setTimeout(() => reject(new Error(errorMessage)), timeoutMs),
     ),
   ]);
+}
+
+/**
+ * Wraps a long-running prompt promise with an *inactivity* timeout instead of
+ * a fixed wall-clock timeout. The deadline is reset every time `heartbeat()` is
+ * called — so an agent that is actively streaming will never be timed out, but
+ * one that goes completely silent for `inactivityMs` will be considered stalled.
+ *
+ * @param {Promise} promise - The prompt promise to race against
+ * @param {number} inactivityMs - Max silence before treating the prompt as stalled
+ * @param {string} errorMessage - Error message emitted on inactivity timeout
+ * @returns {{ promise: Promise, heartbeat: () => void }}
+ */
+function withActivityTimeout(promise, inactivityMs, errorMessage) {
+  let timeoutHandle;
+  let rejectFn;
+
+  // Create a separate promise that we can reject externally via rejectFn
+  const inactivityPromise = new Promise((_, reject) => {
+    rejectFn = reject;
+  });
+
+  /** Call this on every streaming update to reset the inactivity deadline. */
+  function heartbeat() {
+    clearTimeout(timeoutHandle);
+    timeoutHandle = setTimeout(
+      () => rejectFn(new Error(errorMessage)),
+      inactivityMs,
+    );
+  }
+
+  // Start the inactivity clock immediately
+  heartbeat();
+
+  const raced = Promise.race([promise, inactivityPromise]).finally(() => {
+    // Always clean up the dangling timer when the prompt settles either way
+    clearTimeout(timeoutHandle);
+  });
+
+  return { promise: raced, heartbeat };
 }
 
 /**
@@ -324,6 +370,12 @@ async function createAgent(
     },
 
     async sessionUpdate(params) {
+      // Reset the inactivity timeout whenever the agent sends any update.
+      // This is the core of the keepalive mechanism — as long as the agent
+      // keeps streaming (text, tool calls, thoughts, plans) the deadline stays
+      // pushed forward and the prompt will never be timed out mid-work.
+      agents.get(agentId)?.heartbeat?.();
+
       const update = params.update;
       switch (update.sessionUpdate) {
         case "agent_message_chunk":
@@ -404,6 +456,9 @@ async function createAgent(
     role,
     status: "initializing",
     permissionResolver: null,
+    // Heartbeat function set while a prompt is in-flight; called from
+    // sessionUpdate to reset the inactivity timeout on each streaming update.
+    heartbeat: null,
   });
 
   try {
@@ -547,14 +602,17 @@ io.on("connection", (socket) => {
 
     const startTime = Date.now();
     try {
-      const result = await withTimeout(
+      const { promise: promptPromise, heartbeat } = withActivityTimeout(
         agent.connection.prompt({
           sessionId: agent.sessionId,
           prompt: [{ type: "text", text }],
         }),
-        PROMPT_TIMEOUT_MS,
-        `Prompt timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
+        PROMPT_INACTIVITY_TIMEOUT_MS,
+        `Prompt stalled — no activity for ${PROMPT_INACTIVITY_TIMEOUT_MS / 1000}s`,
       );
+      // Store heartbeat so sessionUpdate can reset the deadline on each chunk
+      agent.heartbeat = heartbeat;
+      const result = await promptPromise;
 
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(
@@ -576,6 +634,8 @@ io.on("connection", (socket) => {
         agentId,
         error: `Prompt failed: ${err.message}`,
       });
+    } finally {
+      agent.heartbeat = null;
     }
   });
 
@@ -608,230 +668,259 @@ io.on("connection", (socket) => {
   });
 
   // -- Broadcast a prompt to all ready agents in parallel --
-  socket.on("agent:prompt_all", async ({ text, synthesisInstructions }) => {
-    if (typeof text !== "string" || text.length === 0) {
-      socket.emit("agent:error", {
-        agentId: null,
-        error: "Non-empty text is required for broadcast",
-      });
-      return;
-    }
-
-    // Collect worker agents that are in a promptable state
-    // (the orchestrator is excluded — it receives synthesized results separately)
-    const readyAgents = [...agents.entries()].filter(
-      ([, a]) => a.role === "worker" && a.status === "ready" && a.sessionId,
-    );
-
-    if (readyAgents.length === 0) {
-      socket.emit("agent:error", {
-        agentId: null,
-        error: "No agents are ready to receive prompts",
-      });
-      return;
-    }
-
-    console.log(
-      `[socket] agent:prompt_all → ${readyAgents.length} agents: ${text.slice(0, 80)}`,
-    );
-
-    // Start a new broadcast wave — replaces any previous one
-    const participants = new Map();
-    for (const [agentId, agent] of readyAgents) {
-      participants.set(agentId, {
-        repoName: agent.repoName,
-        repoUrl: agent.repoUrl,
-        textChunks: [],
-        status: "pending",
-      });
-    }
-    activeBroadcastWave = {
-      promptText: text,
-      synthesisInstructions: synthesisInstructions || null,
-      startedAt: new Date().toISOString(),
-      participants,
-      socket,
-    };
-
-    // Mark all targeted agents as busy before firing prompts
-    for (const [agentId, agent] of readyAgents) {
-      agent.status = "busy";
-      socket.emit("agent:update", { agentId, type: "status", content: "busy" });
-    }
-
-    // Fan out prompts — each runs independently so one failure doesn't block others
-    let completedCount = 0;
-    const totalCount = readyAgents.length;
-    const promises = readyAgents.map(async ([agentId, agent]) => {
-      const startTime = Date.now();
-      try {
-        console.log(
-          `[agent:prompt_all] Starting ${agentId.slice(0, 8)} (${agent.repoName})`,
-        );
-
-        const result = await withTimeout(
-          agent.connection.prompt({
-            sessionId: agent.sessionId,
-            prompt: [{ type: "text", text }],
-          }),
-          PROMPT_TIMEOUT_MS,
-          `Broadcast prompt timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
-        );
-
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(
-          `[agent:prompt_all] ${agentId.slice(0, 8)} completed in ${duration}s (${result.stopReason})`,
-        );
-
-        agent.status = "ready";
-        if (activeBroadcastWave?.participants.has(agentId)) {
-          activeBroadcastWave.participants.get(agentId).status = "completed";
-        }
-        socket.emit("agent:prompt_complete", {
-          agentId,
-          stopReason: result.stopReason,
-        });
-      } catch (err) {
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.error(
-          `[agent:prompt_all] ${agentId.slice(0, 8)} (${agent.repoName}) failed after ${duration}s: ${err.message}`,
-        );
-        agent.status = "error";
-        if (activeBroadcastWave?.participants.has(agentId)) {
-          activeBroadcastWave.participants.get(agentId).status = "error";
-        }
+  socket.on(
+    "agent:prompt_all",
+    async ({ text, synthesisInstructions, targetRepoNames }) => {
+      if (typeof text !== "string" || text.length === 0) {
         socket.emit("agent:error", {
-          agentId,
-          error: `Prompt failed: ${err.message}`,
+          agentId: null,
+          error: "Non-empty text is required for broadcast",
         });
-      } finally {
-        // Emit progress so the frontend can show "X of Y agents done"
-        completedCount += 1;
-        socket.emit("agent:broadcast_progress", {
-          completed: completedCount,
-          total: totalCount,
-        });
+        return;
       }
-    });
 
-    await Promise.allSettled(promises);
-
-    // Build coalesced results from the wave data
-    if (activeBroadcastWave) {
-      const results = [...activeBroadcastWave.participants.entries()].map(
-        ([agentId, p]) => ({
-          agentId,
-          repoName: p.repoName,
-          repoUrl: p.repoUrl,
-          status: p.status,
-          output: p.textChunks.join(""),
-        }),
+      // Collect worker agents that are in a promptable state
+      // (the orchestrator is excluded — it receives synthesized results separately)
+      let readyAgents = [...agents.entries()].filter(
+        ([, a]) => a.role === "worker" && a.status === "ready" && a.sessionId,
       );
 
-      socket.emit("agent:broadcast_results", {
-        promptText: activeBroadcastWave.promptText,
-        timestamp: activeBroadcastWave.startedAt,
-        results,
-      });
-
-      // Store in broadcast history so users can review past waves
-      const historyEntry = {
-        promptText: activeBroadcastWave.promptText,
-        timestamp: activeBroadcastWave.startedAt,
-        results,
-      };
-      broadcastHistory.push(historyEntry);
-      if (broadcastHistory.length > MAX_BROADCAST_HISTORY) {
-        broadcastHistory.shift();
-      }
-      socket.emit("broadcast:history", { history: broadcastHistory });
-
-      // Auto-forward coalesced results to the orchestrator agent (if one exists)
-      const orchestrator = [...agents.values()].find(
-        (a) => a.role === "orchestrator" && a.sessionId && a.status === "ready",
-      );
-
-      if (orchestrator) {
-        const orchestratorId = [...agents.entries()].find(
-          ([, a]) => a === orchestrator,
-        )?.[0];
-
-        // Build a synthesis prompt containing all worker outputs
-        const workerSummaries = results
-          .map(
-            (r) =>
-              `## ${r.repoName}\n${r.status === "error" ? "_Agent errored — no output._" : r.output}`,
-          )
-          .join("\n\n");
-
-        const synthesisPrompt =
-          `Here are the results from ${results.length} worker agents after a broadcast prompt.\n\n` +
-          `**Original prompt:** "${activeBroadcastWave.promptText}"\n\n` +
-          `${workerSummaries}\n\n` +
-          `Synthesize these results into a coordination document. ` +
-          `Identify the overall state across repos, flag any cross-repo dependencies or risks, ` +
-          `and recommend a priority order for next steps. ` +
-          `If any workers reported issue URLs, collect them into a table with columns: Repo, Issue, Title. ` +
-          `If any workers reported PR URLs, collect them into a table with columns: Repo, PR, Status, Dependencies, Notes. ` +
-          `Write your synthesis to a file in the operations/ directory of this repo.` +
-          // Append user-provided synthesis instructions so the orchestrator
-          // gets domain-specific guidance (e.g. "create a parent issue")
-          (synthesisInstructions
-            ? `\n\n--- User synthesis instructions ---\n${synthesisInstructions}`
-            : "");
-
-        console.log(
-          `[orchestrator] Auto-forwarding broadcast results to orchestrator ${orchestratorId?.slice(0, 8)} (${orchestrator.repoName})`,
+      // If the user @mentioned specific repos, filter down to only those workers.
+      // Case-insensitive match against repoName so the @ token doesn't have to be exact.
+      if (Array.isArray(targetRepoNames) && targetRepoNames.length > 0) {
+        const targetSet = new Set(targetRepoNames.map((n) => n.toLowerCase()));
+        readyAgents = readyAgents.filter(([, a]) =>
+          targetSet.has(a.repoName.toLowerCase()),
         );
+      }
 
-        orchestrator.status = "busy";
+      if (readyAgents.length === 0) {
+        socket.emit("agent:error", {
+          agentId: null,
+          error: "No agents are ready to receive prompts",
+        });
+        return;
+      }
+
+      console.log(
+        `[socket] agent:prompt_all → ${readyAgents.length} agents: ${text.slice(0, 80)}`,
+      );
+
+      // Start a new broadcast wave — replaces any previous one
+      const participants = new Map();
+      for (const [agentId, agent] of readyAgents) {
+        participants.set(agentId, {
+          repoName: agent.repoName,
+          repoUrl: agent.repoUrl,
+          textChunks: [],
+          status: "pending",
+        });
+      }
+      activeBroadcastWave = {
+        promptText: text,
+        synthesisInstructions: synthesisInstructions || null,
+        startedAt: new Date().toISOString(),
+        participants,
+        socket,
+      };
+
+      // Mark all targeted agents as busy before firing prompts
+      for (const [agentId, agent] of readyAgents) {
+        agent.status = "busy";
         socket.emit("agent:update", {
-          agentId: orchestratorId,
+          agentId,
           type: "status",
           content: "busy",
         });
-
-        const startTime = Date.now();
-
-        // Fire-and-forget with timeout — the orchestrator works asynchronously
-        withTimeout(
-          orchestrator.connection.prompt({
-            sessionId: orchestrator.sessionId,
-            prompt: [{ type: "text", text: synthesisPrompt }],
-          }),
-          PROMPT_TIMEOUT_MS,
-          `Orchestrator synthesis timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
-        )
-          .then((result) => {
-            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-            console.log(
-              `[orchestrator] ${orchestratorId?.slice(0, 8)} synthesis completed in ${duration}s (${result.stopReason})`,
-            );
-            orchestrator.status = "ready";
-            socket.emit("agent:prompt_complete", {
-              agentId: orchestratorId,
-              stopReason: result.stopReason,
-            });
-          })
-          .catch((err) => {
-            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-            console.error(
-              `[orchestrator] ${orchestratorId?.slice(0, 8)} synthesis failed after ${duration}s: ${err.message}`,
-            );
-            orchestrator.status = "error";
-            socket.emit("agent:error", {
-              agentId: orchestratorId,
-              error: `Synthesis failed: ${err.message}`,
-            });
-          });
       }
 
-      activeBroadcastWave = null;
-    }
+      // Fan out prompts — each runs independently so one failure doesn't block others
+      let completedCount = 0;
+      const totalCount = readyAgents.length;
+      const promises = readyAgents.map(async ([agentId, agent]) => {
+        const startTime = Date.now();
+        try {
+          console.log(
+            `[agent:prompt_all] Starting ${agentId.slice(0, 8)} (${agent.repoName})`,
+          );
 
-    // Notify the frontend the entire broadcast round is done
-    socket.emit("agent:prompt_all_complete");
-  });
+          const { promise: promptPromise, heartbeat } = withActivityTimeout(
+            agent.connection.prompt({
+              sessionId: agent.sessionId,
+              prompt: [{ type: "text", text }],
+            }),
+            PROMPT_INACTIVITY_TIMEOUT_MS,
+            `Broadcast prompt stalled — no activity for ${PROMPT_INACTIVITY_TIMEOUT_MS / 1000}s`,
+          );
+          agent.heartbeat = heartbeat;
+          const result = await promptPromise;
+
+          const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.log(
+            `[agent:prompt_all] ${agentId.slice(0, 8)} completed in ${duration}s (${result.stopReason})`,
+          );
+
+          agent.status = "ready";
+          if (activeBroadcastWave?.participants.has(agentId)) {
+            activeBroadcastWave.participants.get(agentId).status = "completed";
+          }
+          socket.emit("agent:prompt_complete", {
+            agentId,
+            stopReason: result.stopReason,
+          });
+        } catch (err) {
+          const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.error(
+            `[agent:prompt_all] ${agentId.slice(0, 8)} (${agent.repoName}) failed after ${duration}s: ${err.message}`,
+          );
+          agent.status = "error";
+          if (activeBroadcastWave?.participants.has(agentId)) {
+            activeBroadcastWave.participants.get(agentId).status = "error";
+          }
+          socket.emit("agent:error", {
+            agentId,
+            error: `Prompt failed: ${err.message}`,
+          });
+        } finally {
+          agent.heartbeat = null;
+          // Emit progress so the frontend can show "X of Y agents done"
+          completedCount += 1;
+          socket.emit("agent:broadcast_progress", {
+            completed: completedCount,
+            total: totalCount,
+          });
+        }
+      });
+
+      await Promise.allSettled(promises);
+
+      // Build coalesced results from the wave data
+      if (activeBroadcastWave) {
+        const results = [...activeBroadcastWave.participants.entries()].map(
+          ([agentId, p]) => ({
+            agentId,
+            repoName: p.repoName,
+            repoUrl: p.repoUrl,
+            status: p.status,
+            output: p.textChunks.join(""),
+          }),
+        );
+
+        socket.emit("agent:broadcast_results", {
+          promptText: activeBroadcastWave.promptText,
+          timestamp: activeBroadcastWave.startedAt,
+          results,
+        });
+
+        // Store in broadcast history so users can review past waves
+        const historyEntry = {
+          promptText: activeBroadcastWave.promptText,
+          timestamp: activeBroadcastWave.startedAt,
+          results,
+        };
+        broadcastHistory.push(historyEntry);
+        if (broadcastHistory.length > MAX_BROADCAST_HISTORY) {
+          broadcastHistory.shift();
+        }
+        socket.emit("broadcast:history", { history: broadcastHistory });
+
+        // Auto-forward coalesced results to the orchestrator agent (if one exists)
+        const orchestrator = [...agents.values()].find(
+          (a) =>
+            a.role === "orchestrator" && a.sessionId && a.status === "ready",
+        );
+
+        if (orchestrator) {
+          const orchestratorId = [...agents.entries()].find(
+            ([, a]) => a === orchestrator,
+          )?.[0];
+
+          // Build a synthesis prompt containing all worker outputs
+          const workerSummaries = results
+            .map(
+              (r) =>
+                `## ${r.repoName}\n${r.status === "error" ? "_Agent errored — no output._" : r.output}`,
+            )
+            .join("\n\n");
+
+          const synthesisPrompt =
+            `Here are the results from ${results.length} worker agents after a broadcast prompt.\n\n` +
+            `**Original prompt:** "${activeBroadcastWave.promptText}"\n\n` +
+            `${workerSummaries}\n\n` +
+            `Synthesize these results into a coordination document. ` +
+            `Identify the overall state across repos, flag any cross-repo dependencies or risks, ` +
+            `and recommend a priority order for next steps. ` +
+            `If any workers reported issue URLs, collect them into a table with columns: Repo, Issue, Title. ` +
+            `If any workers reported PR URLs, collect them into a table with columns: Repo, PR, Status, Dependencies, Notes. ` +
+            `Write your synthesis to a file in the operations/ directory of this repo.` +
+            // Append user-provided synthesis instructions so the orchestrator
+            // gets domain-specific guidance (e.g. "create a parent issue")
+            (synthesisInstructions
+              ? `\n\n--- User synthesis instructions ---\n${synthesisInstructions}`
+              : "");
+
+          console.log(
+            `[orchestrator] Auto-forwarding broadcast results to orchestrator ${orchestratorId?.slice(0, 8)} (${orchestrator.repoName})`,
+          );
+
+          orchestrator.status = "busy";
+          socket.emit("agent:update", {
+            agentId: orchestratorId,
+            type: "status",
+            content: "busy",
+          });
+
+          const startTime = Date.now();
+
+          // Fire-and-forget — the orchestrator works asynchronously after the
+          // broadcast settles. Use inactivity timeout so long synthesis runs
+          // (writing coordination docs, calling tools) are never cut short.
+          const { promise: synthPromise, heartbeat: synthHeartbeat } =
+            withActivityTimeout(
+              orchestrator.connection.prompt({
+                sessionId: orchestrator.sessionId,
+                prompt: [{ type: "text", text: synthesisPrompt }],
+              }),
+              PROMPT_INACTIVITY_TIMEOUT_MS,
+              `Orchestrator synthesis stalled — no activity for ${PROMPT_INACTIVITY_TIMEOUT_MS / 1000}s`,
+            );
+          orchestrator.heartbeat = synthHeartbeat;
+
+          synthPromise
+            .then((result) => {
+              const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+              console.log(
+                `[orchestrator] ${orchestratorId?.slice(0, 8)} synthesis completed in ${duration}s (${result.stopReason})`,
+              );
+              orchestrator.status = "ready";
+              socket.emit("agent:prompt_complete", {
+                agentId: orchestratorId,
+                stopReason: result.stopReason,
+              });
+            })
+            .catch((err) => {
+              const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+              console.error(
+                `[orchestrator] ${orchestratorId?.slice(0, 8)} synthesis failed after ${duration}s: ${err.message}`,
+              );
+              orchestrator.status = "error";
+              socket.emit("agent:error", {
+                agentId: orchestratorId,
+                error: `Synthesis failed: ${err.message}`,
+              });
+            })
+            .finally(() => {
+              orchestrator.heartbeat = null;
+            });
+        }
+
+        activeBroadcastWave = null;
+      }
+
+      // Notify the frontend the entire broadcast round is done
+      socket.emit("agent:prompt_all_complete");
+    },
+  );
 
   // -- Request current list of detected work items (issues / PRs) --
   socket.on("workitems:list", () => {

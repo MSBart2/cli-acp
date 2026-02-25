@@ -12,11 +12,11 @@ import { X, Send, Network, Loader2, ChevronDown, ChevronUp } from "lucide-react"
  */
 
 const statusConfig = {
-  ready: { label: "Ready", color: "bg-teal-400", textColor: "text-teal-400", pulse: false },
-  busy: { label: "Synthesizing", color: "bg-amber-400", textColor: "text-amber-400", pulse: true },
-  error: { label: "Error", color: "bg-red-400", textColor: "text-red-400", pulse: false },
-  initializing: { label: "Initializing", color: "bg-blue-400", textColor: "text-blue-400", pulse: true },
-  spawning: { label: "Spawning", color: "bg-purple-400", textColor: "text-purple-400", pulse: true },
+  ready:       { label: "Ready",        dot: "bg-teal-400",   text: "text-teal-300",   pill: "bg-teal-950/60 border-teal-500/25",   pulse: false },
+  busy:        { label: "Synthesizing", dot: "bg-amber-400",  text: "text-amber-300",  pill: "bg-amber-950/60 border-amber-500/25",  pulse: true  },
+  error:       { label: "Error",        dot: "bg-red-400",    text: "text-red-300",    pill: "bg-red-950/60 border-red-500/25",      pulse: false },
+  initializing:{ label: "Initializing", dot: "bg-blue-400",   text: "text-blue-300",   pill: "bg-blue-950/60 border-blue-500/25",    pulse: true  },
+  spawning:    { label: "Spawning",     dot: "bg-purple-400", text: "text-purple-300", pill: "bg-purple-950/60 border-purple-500/25", pulse: true  },
 };
 
 const spawnSteps = ["cloning", "starting", "verifying"];
@@ -94,15 +94,14 @@ export default function OrchestratorCard({
 
           {/* Status badge + collapse toggle + stop */}
           <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-1.5">
-              <div
-                className={`w-2 h-2 rounded-full ${status.color} ${
-                  status.pulse ? "animate-pulse" : ""
-                }`}
-              />
-              <span className={`text-xs font-medium ${status.textColor}`}>
-                {status.label}
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${status.pill} ${status.text}`}>
+              <span className="relative flex h-2 w-2">
+                {status.pulse && (
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-60`} />
+                )}
+                <span className={`relative inline-flex h-2 w-2 rounded-full ${status.dot}`} />
               </span>
+              {status.label}
             </div>
             <button
               onClick={() => setCollapsed((c) => !c)}
