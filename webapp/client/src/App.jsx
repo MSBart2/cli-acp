@@ -8,6 +8,8 @@ import OrchestratorCard from "./components/OrchestratorCard";
 import OrchestratorInput from "./components/OrchestratorInput";
 import BroadcastInput from "./components/BroadcastInput";
 import BroadcastResults from "./components/BroadcastResults";
+import WorkItemTracker from "./components/WorkItemTracker";
+import BroadcastHistory from "./components/BroadcastHistory";
 
 const SOCKET_URL = import.meta.env.DEV ? "http://localhost:3001" : undefined;
 const socket = io(SOCKET_URL);
@@ -19,6 +21,10 @@ export default function App() {
   const [broadcastResults, setBroadcastResults] = useState(null);
   const [repoBaseDir, setRepoBaseDir] = useState("C:\\users\\rmathis\\source");
   const [reuseExisting, setReuseExisting] = useState(true);
+  const [broadcastProgress, setBroadcastProgress] = useState(null);
+  const [workItems, setWorkItems] = useState([]);
+  const [broadcastHistory, setBroadcastHistory] = useState([]);
+  const [showWorkTracker, setShowWorkTracker] = useState(true);
 
   useEffect(() => {
     socket.on("connect", () => setConnected(true));
@@ -159,14 +165,36 @@ export default function App() {
       });
     });
 
-    // Broadcast wave finished — clear the broadcasting spinner
+    // Broadcast wave finished — clear the broadcasting spinner and progress
     socket.on("agent:prompt_all_complete", () => {
       setBroadcasting(false);
+      setBroadcastProgress(null);
     });
 
     // Coalesced results from a broadcast wave
     socket.on("agent:broadcast_results", (data) => {
       setBroadcastResults(data);
+    });
+
+    // Per-agent broadcast progress (X of Y completed)
+    socket.on("agent:broadcast_progress", (data) => {
+      setBroadcastProgress(data);
+    });
+
+    // Work items (issues / PRs) detected from agent output
+    socket.on("workitems:updated", (data) => {
+      setWorkItems(data.items || []);
+    });
+
+    // Broadcast history
+    socket.on("broadcast:history", (data) => {
+      setBroadcastHistory(data.history || []);
+    });
+
+    // Request existing state from the server on (re)connect
+    socket.on("connect", () => {
+      socket.emit("workitems:list");
+      socket.emit("broadcast:list_history");
     });
 
     return () => {
@@ -181,6 +209,9 @@ export default function App() {
       socket.off("agent:stopped");
       socket.off("agent:prompt_all_complete");
       socket.off("agent:broadcast_results");
+      socket.off("agent:broadcast_progress");
+      socket.off("workitems:updated");
+      socket.off("broadcast:history");
     };
   }, []);
 
