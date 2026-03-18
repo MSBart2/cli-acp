@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Send, Network, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { X, Send, Network, Loader2, ChevronDown, ChevronUp, RotateCw } from "lucide-react";
 
 /**
  * OrchestratorCard — a full-width, visually distinct card for the
@@ -17,15 +17,19 @@ const statusConfig = {
   error:       { label: "Error",        dot: "bg-red-400",    text: "text-red-300",    pill: "bg-red-950/60 border-red-500/25",      pulse: false },
   initializing:{ label: "Initializing", dot: "bg-blue-400",   text: "text-blue-300",   pill: "bg-blue-950/60 border-blue-500/25",    pulse: true  },
   spawning:    { label: "Spawning",     dot: "bg-purple-400", text: "text-purple-300", pill: "bg-purple-950/60 border-purple-500/25", pulse: true  },
+  stopped:     { label: "Stopped",      dot: "bg-gray-400",   text: "text-gray-300",   pill: "bg-gray-800/60 border-gray-600/25",      pulse: false },
 };
 
 const spawnSteps = ["cloning", "starting", "verifying"];
 
 export default function OrchestratorCard({
   agent,
+  unloadedDependencies = [],
   onSendPrompt,
   onStop,
+  onRestart,
   onPermissionResponse,
+  onLoadWorker,
 }) {
   const [input, setInput] = useState("");
   const [collapsed, setCollapsed] = useState(false);
@@ -113,13 +117,23 @@ export default function OrchestratorCard({
                 : <ChevronUp className="w-4 h-4" />
               }
             </button>
-            <button
-              onClick={() => onStop(agent.agentId)}
-              className="p-1.5 rounded-md hover:bg-white/10 text-gray-500 hover:text-red-400 transition-colors"
-              title="Stop orchestrator"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            {agent.status === "stopped" ? (
+              <button
+                onClick={() => onRestart?.(agent.agentId)}
+                className="p-1.5 rounded-md hover:bg-white/10 text-gray-500 hover:text-green-400 transition-colors"
+                title="Restart orchestrator"
+              >
+                <RotateCw className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={() => onStop(agent.agentId)}
+                className="p-1.5 rounded-md hover:bg-white/10 text-gray-500 hover:text-red-400 transition-colors"
+                title="Stop orchestrator"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -160,6 +174,36 @@ export default function OrchestratorCard({
 
         {/* Output stream */}
         {!collapsed && !isSpawning && (
+          <>
+            {unloadedDependencies.length > 0 && (
+              <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/25">
+                <p className="text-sm text-blue-200 font-medium mb-2">
+                  Unloaded dependency neighbors detected
+                </p>
+                <div className="space-y-2">
+                  {unloadedDependencies.map((dep) => (
+                    <div key={dep.repoName} className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="text-gray-300">
+                        <span className="font-medium text-blue-200">{dep.repoName}</span>
+                        {" "}referenced by {dep.referencedBy.join(", ")}
+                      </span>
+                      <button
+                        onClick={() => onLoadWorker?.(dep.suggestedUrl)}
+                        className="px-2 py-0.5 rounded-full bg-blue-950/60 border border-blue-500/30 text-blue-300 hover:bg-blue-900/60 transition-colors"
+                      >
+                        Load as Worker
+                      </button>
+                      {dep.suggestedUrl && (
+                        <span className="text-gray-500 font-mono truncate max-w-full">
+                          {dep.suggestedUrl}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           <div className="bg-[#0a0a10] rounded-lg border border-white/10 mb-4 max-h-64 overflow-y-auto">
             <div className="p-4 space-y-1.5">
               {truncatedCount > 0 && (
@@ -198,6 +242,7 @@ export default function OrchestratorCard({
               <div ref={bottomRef} />
             </div>
           </div>
+          </>
         )}
 
         {/* Permission banner */}

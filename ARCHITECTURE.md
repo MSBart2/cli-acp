@@ -130,6 +130,18 @@ The server maintains a `Map<agentId, AgentEntry>` where each entry contains:
 6. Orchestrator generates synthesis; updates flow back to OrchestratorCard
 ```
 
+Dependency-aware prompt injection and cascade routing both derive repo
+relationships from the built dependency graph, not from one-sided manifest
+scans. That means reverse-only `dependedBy` declarations are treated the same
+as forward `dependsOn` declarations when the server decides which upstream or
+downstream repos to mention or route follow-up work toward.
+
+Broadcast prompts now participate in the same downstream cascade workflow too.
+After the broadcast wave settles and the orchestrator finishes its normal
+synthesis prompt, the server replays cascade analysis for each qualifying worker
+result so routing-plan approval can fan changes into downstream repos without
+skipping the existing synthesis step.
+
 ---
 
 ## Socket.IO Event Reference
@@ -142,7 +154,9 @@ The server maintains a `Map<agentId, AgentEntry>` where each entry contains:
 | `agent:prompt`              | `{agentId, text}`                                | Send prompt to specific agent         |
 | `agent:stop`                | `{agentId}`                                      | Kill agent process and cleanup        |
 | `agent:permission_response` | `{agentId, optionId}`                            | User's response to permission request |
-| `broadcast:prompt`          | `{text, synthesisInstructions?, targetedRepos?}` | Fan-out prompt to workers             |
+| `orchestrator:approve_routing_plan` | `{planId, routes}`                     | Approve and dispatch edited downstream prompts |
+| `orchestrator:cancel_routing_plan`  | `{planId}`                             | Discard a pending routing plan        |
+| `agent:prompt_all`          | `{text, synthesisInstructions?, targetRepoNames?}` | Fan-out prompt to workers           |
 | `workitems:list`            | –                                                | Request current work item registry    |
 | `broadcast:list_history`    | –                                                | Request broadcast history             |
 
@@ -151,17 +165,29 @@ The server maintains a `Map<agentId, AgentEntry>` where each entry contains:
 | Event                      | Payload                                                | Description                               |
 | -------------------------- | ------------------------------------------------------ | ----------------------------------------- |
 | `agent:spawning`           | `{agentId, repoUrl, repoName, role, step, message}`    | Spawn in progress                         |
-| `agent:created`            | `{agentId, repoUrl, repoName, repoPath, role, status}` | Agent ready                               |
+| `agent:created`            | `{agentId, repoUrl, repoName, repoPath, role, status, manifest, manifestMissing, unloadedDeps}` | Agent ready + hydrated dependency state   |
+| `agent:snapshot`           | `{agentId, repoUrl, repoName, repoPath, role, status, manifest, manifestMissing, unloadedDeps}` | Refresh an existing card's manifest state |
 | `agent:update`             | `{agentId, ...sessionUpdate}`                          | Streaming output (text, tool calls, etc.) |
 | `agent:status`             | `{agentId, status}`                                    | Status change (busy → ready, etc.)        |
 | `agent:error`              | `{agentId, error}`                                     | Error message                             |
 | `agent:stopped`            | `{agentId}`                                            | Agent terminated                          |
 | `agent:permission_request` | `{agentId, title, options}`                            | Permission approval needed                |
-| `broadcast:started`        | `{targetAgents}`                                       | Broadcast wave started                    |
-| `broadcast:progress`       | `{completed, total, agentId, repoName, status}`        | Per-worker completion tick                |
-| `broadcast:complete`       | `{results, synthesisInstructions}`                     | All workers done, coalesced results       |
-| `workitems:updated`        | `[...workItems]`                                       | Work item registry changed                |
-| `broadcast:history`        | `[...history]`                                         | Past broadcast prompts                    |
+| `agent:broadcast_progress` | `{completed, total}`                                   | Per-worker completion tick                |
+| `agent:broadcast_results`  | `{promptText, timestamp, results}`                     | Latest coalesced broadcast results        |
+| `agent:prompt_all_complete` | –                                                     | Entire broadcast wave finished            |
+| `workitems:updated`        | `{items: [...workItems]}`                              | Work item registry changed                |
+| `broadcast:history`        | `{history: [...history]}`                              | Past broadcast prompts                    |
+| `orchestrator:routing_plan` | `{planId, sourceAgentId, sourceRepoName, originalPromptText, routes}` | Pending downstream routing plan for approval |
+
+`agent:created` is the initial hydration event for a card. Later manifest reparses (for example after manifest creation, reverse sync, or a Dependency Graph refresh) are sent through `agent:snapshot` so the client can update dependency pills without treating the agent as newly created again. Session restore now reuses the same disk-backed manifest refresh path before emitting graph state, so restored cards and graph warnings reflect the current repo contents instead of only the saved snapshot.
+
+The client also derives an orchestrator-facing summary of unloaded dependency neighbors from worker card state. Each worker can suggest a sibling repo URL for its own `Load as Worker` action, and the orchestrator card aggregates those missing repos into a deduplicated banner with one-click load buttons.
+
+When the server builds the injected cross-repo context block for a worker prompt,
+or decides which downstream repos should be considered for cascade follow-up, it
+uses the same graph-derived relationship model. This keeps prompt context,
+dependency pills, and cascade targeting aligned even if only one side of a
+relationship is declared in the manifests currently loaded in the session.
 
 ---
 

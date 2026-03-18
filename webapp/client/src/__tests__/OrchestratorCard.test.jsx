@@ -22,6 +22,7 @@ describe("OrchestratorCard", () => {
     onSendPrompt: vi.fn(),
     onStop: vi.fn(),
     onPermissionResponse: vi.fn(),
+    onLoadWorker: vi.fn(),
   };
 
   it("renders the orchestrator heading and repo name", () => {
@@ -119,5 +120,29 @@ describe("OrchestratorCard", () => {
       "Send a prompt to the orchestrator…",
     );
     expect(input).toBeDisabled();
+  });
+
+  it("shows unloaded dependency neighbors and loads them via the orchestrator card", () => {
+    const onLoadWorker = vi.fn();
+    render(
+      <OrchestratorCard
+        agent={makeAgent()}
+        {...handlers}
+        onLoadWorker={onLoadWorker}
+        unloadedDependencies={[
+          {
+            repoName: "webapp",
+            referencedBy: ["api-gateway"],
+            directions: ["downstream"],
+            suggestedUrl: "https://github.com/myorg/webapp",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Unloaded dependency neighbors detected")).toBeInTheDocument();
+    expect(screen.getByText(/referenced by api-gateway/i)).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText("Load as Worker")[0]);
+    expect(onLoadWorker).toHaveBeenCalledWith("https://github.com/myorg/webapp");
   });
 });

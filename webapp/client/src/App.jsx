@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { io } from "socket.io-client";
 import { Terminal } from "lucide-react";
+import { Toaster } from "react-hot-toast";
 import Header from "./components/Header";
 import RepoInput from "./components/RepoInput";
 import AgentCard from "./components/AgentCard";
@@ -10,6 +11,12 @@ import BroadcastInput from "./components/BroadcastInput";
 import BroadcastResults from "./components/BroadcastResults";
 import WorkItemTracker from "./components/WorkItemTracker";
 import BroadcastHistory from "./components/BroadcastHistory";
+import DependencyGraph from "./components/DependencyGraph";
+import MissionContext from "./components/MissionContext";
+import RoutingPlanPanel from "./components/RoutingPlanPanel";
+import { useNotifications } from "./hooks/useNotifications";
+import { mergeAgentSnapshot } from "./agentState";
+import { buildOrchestratorUnloadedDeps } from "./dependencySuggestions";
 
 const SOCKET_URL = import.meta.env.DEV ? "http://localhost:3001" : undefined;
 const socket = io(SOCKET_URL);
@@ -25,6 +32,13 @@ export default function App() {
   const [workItems, setWorkItems] = useState([]);
   const [broadcastHistory, setBroadcastHistory] = useState([]);
   const [showWorkTracker, setShowWorkTracker] = useState(true);
+  const [depGraph, setDepGraph] = useState(null);
+  const [unloadedDeps, setUnloadedDeps] = useState({});
+  const [missionContext, setMissionContext] = useState("");
+  const [routingPlan, setRoutingPlan] = useState(null);
+
+  // Toast + browser notifications wired to socket events
+  const { requestBrowserPermission, browserPermission } = useNotifications(socket);
 
   useEffect(() => {
     socket.on("connect", () => setConnected(true));
@@ -36,7 +50,7 @@ export default function App() {
         const existing = prev[data.agentId];
         return {
           ...prev,
-          [data.agentId]: {
+          [data.agentId]: mergeAgentSnapshot(existing, {
             agentId: data.agentId,
             repoUrl: data.repoUrl,
             repoName: data.repoName,
@@ -44,9 +58,7 @@ export default function App() {
             status: "spawning",
             spawnStep: data.step,
             spawnMessage: data.message,
-            output: existing?.output || [],
-            pendingPermission: null,
-          },
+          }),
         };
       });
     });
@@ -57,18 +69,22 @@ export default function App() {
         const existing = prev[data.agentId];
         return {
           ...prev,
-          [data.agentId]: {
-            ...existing,
-            agentId: data.agentId,
-            repoUrl: data.repoUrl,
-            repoName: data.repoName,
-            repoPath: data.repoPath || existing?.repoPath || null,
-            role: data.role || existing?.role || "worker",
-            status: data.status || "ready",
+          [data.agentId]: mergeAgentSnapshot(existing, {
+            ...data,
             spawnStep: null,
             spawnMessage: null,
-            pendingPermission: existing?.pendingPermission || null,
-          },
+          }),
+        };
+      });
+    });
+
+    socket.on("agent:snapshot", (data) => {
+      setAgents((prev) => {
+        const existing = prev[data.agentId];
+        if (!existing) return prev;
+        return {
+          ...prev,
+          [data.agentId]: mergeAgentSnapshot(existing, data),
         };
       });
     });
@@ -195,6 +211,76 @@ export default function App() {
     socket.on("connect", () => {
       socket.emit("workitems:list");
       socket.emit("broadcast:list_history");
+      socket.emit("graph:list");
+      socket.emit("mission:get");
+    });
+
+    // Mission / global context sync
+    socket.on("mission:updated", ({ text }) => {
+      setMissionContext(text ?? "");
+    });
+
+    // Dependency graph updated
+    socket.on("graph:updated", (graph) => {
+      setDepGraph(graph);
+      const unloadedByAgentId = Object.fromEntries(
+        (graph.unloadedDeps || []).map((entry) => [entry.agentId, entry.missing]),
+      );
+      const graphNodeIds = new Set((graph.nodes || []).map((node) => node.agentId));
+      setUnloadedDeps(unloadedByAgentId);
+      setAgents((prev) => {
+        const next = { ...prev };
+        for (const agentId of Object.keys(next)) {
+          const agent = next[agentId];
+          next[agentId] = {
+            ...agent,
+            unloadedDeps: unloadedByAgentId[agentId] ?? [],
+            manifestMissing: graphNodeIds.has(agentId) ? false : agent.manifestMissing,
+          };
+        }
+        return next;
+      });
+    });
+
+    // An agent confirmed its manifest is missing
+    socket.on("graph:manifest_missing", ({ agentId }) => {
+      setAgents((prev) => {
+        const agent = prev[agentId];
+        if (!agent) return prev;
+        return { ...prev, [agentId]: { ...agent, manifestMissing: true } };
+      });
+    });
+
+    // Unloaded dep notification for an agent
+    socket.on("graph:unloaded_deps", ({ agentId, unloaded }) => {
+      setUnloadedDeps((prev) => ({ ...prev, [agentId]: unloaded }));
+      setAgents((prev) => {
+        const agent = prev[agentId];
+        if (!agent) return prev;
+        return { ...prev, [agentId]: { ...agent, unloadedDeps: unloaded } };
+      });
+    });
+
+    // Graph inconsistency warnings
+    socket.on("graph:inconsistency", ({ warnings }) => {
+      setDepGraph((prev) => prev ? { ...prev, warnings: [...(prev.warnings || []), ...warnings] } : null);
+    });
+
+    socket.on("orchestrator:routing_plan", (data) => {
+      setRoutingPlan(data);
+    });
+
+    // Impact checking state for downstream workers
+    socket.on("agent:impact_checking", ({ downstreamRepoNames, checking }) => {
+      setAgents((prev) => {
+        const next = { ...prev };
+        for (const id of Object.keys(next)) {
+          if (downstreamRepoNames.includes(next[id].repoName)) {
+            next[id] = { ...next[id], impactChecking: checking };
+          }
+        }
+        return next;
+      });
     });
 
     return () => {
@@ -202,6 +288,7 @@ export default function App() {
       socket.off("disconnect");
       socket.off("agent:spawning");
       socket.off("agent:created");
+      socket.off("agent:snapshot");
       socket.off("agent:update");
       socket.off("agent:prompt_complete");
       socket.off("agent:permission_request");
@@ -212,6 +299,13 @@ export default function App() {
       socket.off("agent:broadcast_progress");
       socket.off("workitems:updated");
       socket.off("broadcast:history");
+      socket.off("graph:updated");
+      socket.off("graph:manifest_missing");
+      socket.off("graph:unloaded_deps");
+      socket.off("graph:inconsistency");
+      socket.off("orchestrator:routing_plan");
+      socket.off("agent:impact_checking");
+      socket.off("mission:updated");
     };
   }, []);
 
@@ -232,6 +326,10 @@ export default function App() {
     socket.emit("agent:stop", { agentId });
   }, []);
 
+  const handleRestartAgent = useCallback((agentId) => {
+    socket.emit("agent:restart", { agentId });
+  }, []);
+
   const handlePermissionResponse = useCallback((agentId, option) => {
     socket.emit("agent:permission_response", { agentId, optionId: option });
     setAgents((prev) => {
@@ -241,8 +339,34 @@ export default function App() {
     });
   }, []);
 
-  /** Fan-out: send the same prompt to every ready agent at once, or only to @mentioned ones */
-  const handleBroadcastPrompt = useCallback((text, synthesisInstructions, targetRepoNames) => {
+  const handleCreateManifest = useCallback((agentId) => {
+    socket.emit("orchestrator:create_manifest", { agentId });
+  }, []);
+
+  const handleLoadWorker = useCallback((url) => {
+    if (url) handleLaunchAgent(url, "worker");
+  }, [handleLaunchAgent]);
+
+  const handleRefreshGraph = useCallback(() => {
+    socket.emit("graph:list");
+  }, []);
+
+  const handleApproveRoutingPlan = useCallback((planId, routes) => {
+    socket.emit("orchestrator:approve_routing_plan", { planId, routes });
+    setRoutingPlan(null);
+  }, []);
+
+  const handleCancelRoutingPlan = useCallback((planId) => {
+    socket.emit("orchestrator:cancel_routing_plan", { planId });
+    setRoutingPlan(null);
+  }, []);
+
+  const handleMissionChange = useCallback((text) => {
+    setMissionContext(text);
+    socket.emit("mission:set", { text });
+  }, []);
+
+  /** Fan-out: send the same prompt to every ready agent at once, or only to @mentioned ones */  const handleBroadcastPrompt = useCallback((text, synthesisInstructions, targetRepoNames) => {
     setBroadcasting(true);
     // Clear previous results when a new broadcast starts
     setBroadcastResults(null);
@@ -271,6 +395,10 @@ export default function App() {
   const agentList = Object.values(agents);
   const orchestrator = agentList.find((a) => a.role === "orchestrator");
   const workers = agentList.filter((a) => a.role !== "orchestrator");
+  const orchestratorUnloadedDeps = useMemo(
+    () => buildOrchestratorUnloadedDeps(workers),
+    [workers],
+  );
   const workerRepoNames = workers.map((a) => a.repoName);
   const readyCount = workers.filter((a) => a.status === "ready").length;
   const busyCount = workers.filter((a) => a.status === "busy").length;
@@ -280,6 +408,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
+      {/* Toast notifications — top-right corner, dark theme */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: "rgba(15,15,25,0.95)",
+            color: "#e2e8f0",
+            border: "1px solid rgba(255,255,255,0.1)",
+            backdropFilter: "blur(12px)",
+            fontSize: "0.8125rem",
+          },
+          success: { iconTheme: { primary: "#a78bfa", secondary: "#0f0f19" } },
+          error:   { iconTheme: { primary: "#f87171", secondary: "#0f0f19" } },
+        }}
+      />
       {/* Subtle radial glow behind the page content for depth */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-purple-600/[0.07] rounded-full blur-3xl" />
@@ -293,9 +436,13 @@ export default function App() {
           onRepoBashDirChange={setRepoBaseDir}
           reuseExisting={reuseExisting}
           onReuseExistingChange={setReuseExisting}
+          socket={socket}
+          browserPermission={browserPermission}
+          onRequestBrowserPermission={requestBrowserPermission}
         />
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+          <MissionContext value={missionContext} onChange={handleMissionChange} />
           {/* ── Orchestrator section ── always first */}
           {!orchestrator && (
             <OrchestratorInput onLaunch={handleLaunchAgent} connected={connected} />
@@ -303,11 +450,21 @@ export default function App() {
           {orchestrator && (
             <OrchestratorCard
               agent={orchestrator}
+              unloadedDependencies={orchestratorUnloadedDeps}
               onSendPrompt={handleSendPrompt}
               onStop={handleStopAgent}
+              onRestart={handleRestartAgent}
               onPermissionResponse={handlePermissionResponse}
+              onLoadWorker={handleLoadWorker}
             />
           )}
+
+          <DependencyGraph graph={depGraph} onRefresh={handleRefreshGraph} />
+          <RoutingPlanPanel
+            plan={routingPlan}
+            onApprove={handleApproveRoutingPlan}
+            onCancel={handleCancelRoutingPlan}
+          />
 
           {/* ── Worker section — show once orchestrator is past initial setup ── */}
           {orchestrator && !["spawning", "initializing"].includes(orchestrator.status) && (
@@ -335,7 +492,10 @@ export default function App() {
                     agent={agent}
                     onSendPrompt={handleSendPrompt}
                     onStop={handleStopAgent}
+                    onRestart={handleRestartAgent}
                     onPermissionResponse={handlePermissionResponse}
+                    onCreateManifest={handleCreateManifest}
+                    onLoadWorker={handleLoadWorker}
                   />
                 ))}
                 <RepoInput onLaunch={handleLaunchAgent} connected={connected} />

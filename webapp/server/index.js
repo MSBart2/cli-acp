@@ -4,13 +4,14 @@ import { Server } from "socket.io";
 import { spawn } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
-import { isValidGitUrl, repoNameFromUrl, extractWorkItems } from "./helpers.js";
+import { isValidGitUrl, repoNameFromUrl, extractWorkItems, buildDependencyGraph, getGraphRelationships, inferManifestRelationships, CHANGE_SIGNAL_WORDS } from "./helpers.js";
+import { saveSession, loadSession, listSessions, deleteSession, purgeOldSessions } from "./sessionStore.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -73,9 +74,47 @@ const MAX_BROADCAST_HISTORY = 10;
  */
 let activeBroadcastWave = null;
 
+/** Pending orchestrator-generated routing plans awaiting user approval. */
+const pendingRoutingPlans = new Map();
+
+/** Active cascade runs used to support multi-wave downstream follow-ups. */
+const cascadeRuns = new Map();
+
 // ---------------------------------------------------------------------------
-// Helpers
+// Session state
 // ---------------------------------------------------------------------------
+
+let currentSessionName = "default";
+
+/** Tracks the last repoBaseDir used in agent:create so session:load respawn can reuse it. */
+let currentRepoBaseDir = REPO_BASE_DIR;
+
+/** Global mission/context text prepended to every agent prompt when non-empty. */
+let globalMissionContext = "";
+
+function saveCurrentSession() {
+  // Auto-name from orchestrator repoName + date when still on the default name
+  if (currentSessionName === "default") {
+    const orchestrator = [...agents.values()].find(a => a.role === "orchestrator");
+    if (orchestrator?.repoName) {
+      const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      currentSessionName = `${orchestrator.repoName}-${date}`;
+      console.log(`[session] Auto-named session: ${currentSessionName}`);
+    }
+  }
+  saveSession(currentSessionName, { agents, workItems, broadcastHistory });
+  purgeOldSessions();
+}
+
+/**
+ * Returns a formatted mission context prefix to prepend to agent prompts.
+ * Returns an empty string when no mission context has been set.
+ * @returns {string}
+ */
+function buildMissionPrefix() {
+  if (!globalMissionContext?.trim()) return "";
+  return `## Mission / Global Context\n${globalMissionContext.trim()}\n\n---\n\n`;
+}
 
 /**
  * Wraps a promise with a fixed wall-clock timeout. Use this for short, bounded
@@ -133,6 +172,286 @@ function withActivityTimeout(promise, inactivityMs, errorMessage) {
   });
 
   return { promise: raced, heartbeat };
+}
+
+/**
+ * Parse orchestrator output for @repo: prompt routing directives.
+ * Returns an array of { repoName, promptText } pairs.
+ * Returns null if the output contains NO_CASCADE.
+ * @param {string} text
+ * @returns {Array<{repoName: string, promptText: string}>|null}
+ */
+function parseRoutingPlan(text) {
+  if (!text || /NO_CASCADE/i.test(text)) return null;
+  const directives = [];
+  const re = /@([\w-]+)\s*:\s*([^\n@]+)/g;
+  for (const match of text.matchAll(re)) {
+    directives.push({ repoName: match[1].trim(), promptText: match[2].trim() });
+  }
+  return directives.length > 0 ? directives : null;
+}
+
+/**
+ * Build the cross-repo context block to prepend to worker prompts.
+ * Returns an empty string if the agent has no known dependencies.
+ * @param {string} agentId
+ * @returns {string}
+ */
+function buildCrossRepoContext(agentId) {
+  const agent = agents.get(agentId);
+  if (!agent?.manifest) return "";
+
+  const { upstream, downstream } = getGraphRelationships(agents, agentId);
+
+  if (upstream.length === 0 && downstream.length === 0) return "";
+
+  const lines = ["## Cross-Repo Context (injected by ACP Orchestrator)"];
+  if (upstream.length > 0) {
+    lines.push(`This repo depends on: ${upstream.join(", ")} (also loaded in this session).`);
+  }
+  if (downstream.length > 0) {
+    lines.push(`The following repos in this session depend on this repo: ${downstream.join(", ")}.`);
+  }
+  lines.push("Keep cross-repo compatibility in mind. If your changes affect public interfaces, flag them explicitly.");
+  return lines.join("\n") + "\n\n";
+}
+
+/**
+ * Run downstream impact analysis for a completed worker prompt and emit a
+ * routing plan when the orchestrator finds follow-up work.
+ *
+ * @param {object} socket
+ * @param {string} agentId
+ * @param {string} originalPromptText
+ * @param {string} accumulatedOutput
+ * @param {{ cascadeRunId?: string, forceCascade?: boolean } | null} options
+ * @returns {Promise<boolean>}
+ */
+async function runCascadeAnalysis(socket, agentId, originalPromptText, accumulatedOutput, options = null) {
+  const agent = agents.get(agentId);
+  if (!agent) {
+    return false;
+  }
+
+  const hasSignal = originalPromptText
+    .toLowerCase()
+    .split(/\W+/)
+    .some((w) => CHANGE_SIGNAL_WORDS.has(w));
+  const cascadeRun = options?.cascadeRunId
+    ? cascadeRuns.get(options.cascadeRunId)
+    : null;
+  const visitedRepoNames = cascadeRun?.visitedRepoNames ?? new Set();
+  const { downstream } = getGraphRelationships(agents, agentId);
+  const filteredDownstream = downstream
+    .filter((repoName) => !visitedRepoNames.has(repoName.toLowerCase()));
+
+  if (!(options?.forceCascade || hasSignal) || filteredDownstream.length === 0) {
+    return false;
+  }
+
+  const orchestratorEntry = [...agents.entries()].find(
+    ([, candidate]) => candidate.role === "orchestrator" && candidate.sessionId && candidate.status === "ready",
+  );
+  if (!orchestratorEntry) {
+    return false;
+  }
+
+  const [orchestratorId, orchestrator] = orchestratorEntry;
+  const cascadePrompt =
+    `Worker "${agent.repoName}" just completed a task: "${originalPromptText}"\n\n` +
+    `Dependency context:\n- ${agent.repoName} is depended on by: ${filteredDownstream.join(", ")} (loaded in this session)\n\n` +
+    `Review the worker's output and decide:\n` +
+    `1. Do any changes require follow-up work in downstream repos?\n` +
+    `2. If yes, write a targeted prompt for each affected downstream repo:\n   @{repoName}: {prompt text}\n` +
+    `3. If no downstream impact, reply: NO_CASCADE\n\n` +
+    `Worker output:\n${accumulatedOutput}`;
+
+  socket.emit("agent:impact_checking", { downstreamRepoNames: filteredDownstream, checking: true });
+
+  orchestrator.status = "busy";
+  orchestrator.lastPromptOutput = [];
+  socket.emit("agent:update", { agentId: orchestratorId, type: "status", content: "busy" });
+
+  try {
+    const { promise: cascadePromise, heartbeat: cascadeHeartbeat } = withActivityTimeout(
+      orchestrator.connection.prompt({
+        sessionId: orchestrator.sessionId,
+        prompt: [{ type: "text", text: cascadePrompt }],
+      }),
+      PROMPT_INACTIVITY_TIMEOUT_MS,
+      "Cascade check stalled",
+    );
+    orchestrator.heartbeat = cascadeHeartbeat;
+
+    await cascadePromise;
+
+    const routingText = (orchestrator.lastPromptOutput || []).join("").trim();
+    const parsedRoutes = parseRoutingPlan(routingText);
+
+    orchestrator.status = "ready";
+    socket.emit("agent:update", { agentId: orchestratorId, type: "status", content: "ready" });
+    socket.emit("agent:impact_checking", { downstreamRepoNames: filteredDownstream, checking: false });
+
+    if (!parsedRoutes) {
+      return false;
+    }
+
+    const routingRunId = options?.cascadeRunId || randomUUID();
+    const routingRun = cascadeRuns.get(routingRunId) || {
+      runId: routingRunId,
+      visitedRepoNames: new Set([agent.repoName.toLowerCase()]),
+    };
+    routingRun.visitedRepoNames.add(agent.repoName.toLowerCase());
+    cascadeRuns.set(routingRunId, routingRun);
+
+    const routes = parsedRoutes.filter(
+      (route) => !routingRun.visitedRepoNames.has(route.repoName.toLowerCase()),
+    );
+
+    if (routes.length === 0) {
+      return false;
+    }
+
+    const planId = randomUUID();
+    const routingPlan = {
+      planId,
+      cascadeRunId: routingRunId,
+      sourceAgentId: agentId,
+      sourceRepoName: agent.repoName,
+      originalPromptText,
+      routes,
+    };
+    pendingRoutingPlans.set(planId, routingPlan);
+    socket.emit("orchestrator:routing_plan", routingPlan);
+    return true;
+  } catch (err) {
+    console.error(`[cascade] Orchestrator cascade check failed: ${err.message}`);
+    orchestrator.status = "error";
+    socket.emit("agent:update", { agentId: orchestratorId, type: "status", content: "error" });
+    socket.emit("agent:error", {
+      agentId: orchestratorId,
+      error: `Cascade check failed: ${err.message}`,
+    });
+    socket.emit("agent:impact_checking", { downstreamRepoNames: filteredDownstream, checking: false });
+    return false;
+  } finally {
+    orchestrator.heartbeat = null;
+    orchestrator.lastPromptOutput = undefined;
+  }
+}
+
+/**
+ * Build the client-facing snapshot for an agent, including manifest hydration
+ * fields and graph-derived unloaded dependency state.
+ *
+ * @param {string} agentId
+ * @param {{ unloadedDeps?: Array<{ agentId: string, missing: Array<{ repoName: string, direction: string }> }> } | null} [graph]
+ * @param {string|null} [statusOverride]
+ * @returns {object|null}
+ */
+function buildAgentSnapshot(agentId, graph = null, statusOverride = null) {
+  const agent = agents.get(agentId);
+  if (!agent) return null;
+
+  const unloadedDeps =
+    graph?.unloadedDeps?.find((entry) => entry.agentId === agentId)?.missing ?? [];
+
+  return {
+    agentId,
+    repoUrl: agent.repoUrl,
+    repoName: agent.repoName,
+    repoPath: agent.repoPath,
+    role: agent.role,
+    status: statusOverride ?? agent.status,
+    manifest: agent.manifest,
+    manifestMissing: agent.manifestMissing,
+    unloadedDeps,
+  };
+}
+
+/**
+ * Refresh a single agent's manifest state from the repo on disk.
+ *
+ * @param {string} agentId
+ * @returns {{ ok: boolean, exists: boolean }}
+ */
+function refreshAgentManifestFromDisk(agentId) {
+  const agent = agents.get(agentId);
+  if (!agent?.repoPath) {
+    return { ok: false, exists: false };
+  }
+
+  const manifestPath = join(agent.repoPath, "acp-manifest.json");
+  if (!existsSync(manifestPath)) {
+    agent.manifest = null;
+    agent.manifestMissing = true;
+    return { ok: true, exists: false };
+  }
+
+  try {
+    const manifestText = readFileSync(manifestPath, "utf-8");
+    agent.manifest = JSON.parse(manifestText);
+    agent.manifestMissing = false;
+    return { ok: true, exists: true };
+  } catch (err) {
+    agent.manifest = null;
+    agent.manifestMissing = true;
+    console.warn(
+      `[manifest:refresh] Failed to parse acp-manifest.json for ${agent.repoName}: ${err.message}`,
+    );
+    return { ok: false, exists: true };
+  }
+}
+
+/**
+ * Refresh all known agents from disk and return the refreshed graph.
+ *
+ * @returns {ReturnType<typeof buildDependencyGraph>}
+ */
+function refreshAllAgentManifestsFromDisk() {
+  for (const agentId of agents.keys()) {
+    refreshAgentManifestFromDisk(agentId);
+  }
+  return buildDependencyGraph(agents);
+}
+
+/**
+ * Emit refreshed dependency graph state to the client.
+ *
+ * @param {object} socket
+ * @param {ReturnType<typeof buildDependencyGraph>} graph
+ */
+function emitDependencyGraphState(socket, graph) {
+  socket.emit("graph:updated", graph);
+  for (const [agentId, agent] of agents.entries()) {
+    if (agent.manifestMissing) {
+      socket.emit("graph:manifest_missing", { agentId });
+    }
+  }
+  for (const unloaded of graph.unloadedDeps) {
+    socket.emit("graph:unloaded_deps", {
+      agentId: unloaded.agentId,
+      repoName: unloaded.repoName,
+      unloaded: unloaded.missing,
+    });
+  }
+  if (graph.warnings.length > 0) {
+    socket.emit("graph:inconsistency", { warnings: graph.warnings });
+  }
+}
+
+/**
+ * Emit agent snapshots for every known agent using a shared graph payload.
+ *
+ * @param {object} socket
+ * @param {ReturnType<typeof buildDependencyGraph>} graph
+ * @param {string} eventName
+ * @param {string|null} [statusOverride]
+ */
+function emitAgentSnapshots(socket, graph, eventName = "agent:snapshot", statusOverride = null) {
+  for (const agentId of agents.keys()) {
+    socket.emit(eventName, buildAgentSnapshot(agentId, graph, statusOverride));
+  }
 }
 
 /**
@@ -228,6 +547,88 @@ function detectWorkItems(socket, agentId, text) {
   }
 }
 
+/**
+ * Prompt a single agent using the standard prompt flow, including prompt
+ * enrichment, streaming timeout handling, and cascade analysis.
+ *
+ * @param {object} socket
+ * @param {string} agentId
+ * @param {string} text
+ * @param {{ cascadeRunId?: string, forceCascade?: boolean } | null} [options]
+ * @returns {Promise<boolean>}
+ */
+async function promptAgent(socket, agentId, text, options = null) {
+  if (!agentId || typeof text !== "string" || text.length === 0) {
+    socket.emit("agent:error", {
+      agentId,
+      error: "agentId and non-empty text are required",
+    });
+    return false;
+  }
+
+  const agent = agents.get(agentId);
+  if (!agent) {
+    socket.emit("agent:error", { agentId, error: "Agent not found" });
+    return false;
+  }
+
+  console.log(
+    `[socket] agent:prompt → ${agentId.slice(0, 8)} (${agent.repoName}): ${text.slice(0, 80)}`,
+  );
+  agent.status = "busy";
+  socket.emit("agent:update", { agentId, type: "status", content: "busy" });
+
+  const originalPromptText = text;
+  const missionPrefix = buildMissionPrefix();
+  const crossRepoContext = buildCrossRepoContext(agentId);
+  const enrichedText = missionPrefix + (crossRepoContext ? crossRepoContext + text : text);
+  agent.lastPromptOutput = [];
+
+  const startTime = Date.now();
+  try {
+    const { promise: promptPromise, heartbeat } = withActivityTimeout(
+      agent.connection.prompt({
+        sessionId: agent.sessionId,
+        prompt: [{ type: "text", text: enrichedText }],
+      }),
+      PROMPT_INACTIVITY_TIMEOUT_MS,
+      `Prompt stalled — no activity for ${PROMPT_INACTIVITY_TIMEOUT_MS / 1000}s`,
+    );
+    agent.heartbeat = heartbeat;
+    const result = await promptPromise;
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(
+      `[agent:prompt] ${agentId.slice(0, 8)} completed in ${duration}s (${result.stopReason})`,
+    );
+
+    agent.status = "ready";
+    socket.emit("agent:prompt_complete", {
+      agentId,
+      stopReason: result.stopReason,
+    });
+
+    const accumulatedOutput = (agent.lastPromptOutput || []).join("");
+    void runCascadeAnalysis(socket, agentId, originalPromptText, accumulatedOutput, options);
+
+    return true;
+  } catch (err) {
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.error(
+      `[agent:prompt] ${agentId.slice(0, 8)} failed after ${duration}s: ${err.message}`,
+    );
+    agent.status = "error";
+    socket.emit("agent:error", {
+      agentId,
+      error: `Prompt failed: ${err.message}`,
+    });
+    return false;
+  } finally {
+    agent.heartbeat = null;
+    agent.lastPromptOutput = undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Core: spawn copilot, create ACP session, wire events to socket
 // ---------------------------------------------------------------------------
@@ -245,11 +646,12 @@ async function createAgent(
   role = "worker",
   repoBaseDir,
   reuseExisting = false,
+  existingId = null,
 ) {
   // Enforce single-orchestrator rule
   if (role === "orchestrator") {
     const existing = [...agents.values()].find(
-      (a) => a.role === "orchestrator",
+      (a) => a.role === "orchestrator" && a.agentId !== existingId && a.status !== "stopped",
     );
     if (existing) {
       socket.emit("agent:error", {
@@ -261,7 +663,7 @@ async function createAgent(
     }
   }
 
-  const agentId = randomUUID();
+  const agentId = existingId || randomUUID();
   const repoName = repoNameFromUrl(repoUrl);
 
   // Immediately tell the frontend a spawn is in progress so it can show a wait state
@@ -389,6 +791,16 @@ async function createAgent(
             // Scan for issue/PR URLs in real-time as text streams in
             detectWorkItems(socket, agentId, update.content.text);
 
+            // Accumulate text during manifest capture (startup verification)
+            const currentAgent = agents.get(agentId);
+            if (currentAgent?.capturingManifest) {
+              currentAgent.manifestText.push(update.content.text);
+            }
+            // Accumulate text for cascade analysis after prompt completes
+            if (currentAgent?.lastPromptOutput !== undefined) {
+              currentAgent.lastPromptOutput.push(update.content.text);
+            }
+
             // If this agent is part of an active broadcast wave, accumulate
             // its text so we can coalesce results when the wave completes
             if (activeBroadcastWave?.participants.has(agentId)) {
@@ -459,6 +871,8 @@ async function createAgent(
     // Heartbeat function set while a prompt is in-flight; called from
     // sessionUpdate to reset the inactivity timeout on each streaming update.
     heartbeat: null,
+    manifest: null,          // parsed acp-manifest.json, or null
+    manifestMissing: false,  // true when agent confirmed the file doesn't exist
   });
 
   try {
@@ -498,23 +912,74 @@ async function createAgent(
       message: "Verifying agent is responsive…",
     });
 
-    // Send a lightweight startup prompt so we know the agent can respond
+    // Send a startup prompt to check for acp-manifest.json and gather repo context
+    const manifestText = [];
+    agent.capturingManifest = true;
+    agent.manifestText = manifestText;
+
     try {
       const verifyResult = await connection.prompt({
         sessionId: sessionResult.sessionId,
         prompt: [
           {
             type: "text",
-            text: "Briefly describe this repository in one or two sentences. Do not read any files — just use whatever context you already have from the repo name and structure.",
+            text: `Check if the file \`acp-manifest.json\` exists at the root of this repository.
+- If it exists, read it and return ONLY the raw JSON content (no markdown fences, no explanation).
+- If it does not exist, respond with a single line: NO_MANIFEST: then a one-sentence description of this repo's apparent role and primary tech stack.`,
           },
         ],
       });
 
       agent.status = "ready";
+      agent.capturingManifest = false;
+
+      // Accumulate any text chunks we received during verification
+      const responseText = manifestText.join("").trim();
+
+      if (responseText && !responseText.startsWith("NO_MANIFEST:")) {
+        // Try to parse as JSON manifest
+        try {
+          const parsed = JSON.parse(responseText);
+          agent.manifest = parsed;
+          console.log(`[agent:${agentId.slice(0, 8)}] Manifest loaded for ${agent.repoName}`);
+
+          // Cross-populate dependedBy on other agents whose repos are in this agent's dependsOn
+          for (const depRepoName of parsed.dependsOn || []) {
+            const depEntry = [...agents.entries()].find(([, a]) => a.repoName === depRepoName);
+            if (depEntry) {
+              const [depAgentId, depAgent] = depEntry;
+              if (depAgent.connection && depAgent.sessionId && depAgent.status !== "busy") {
+                console.log(`[manifest:cross-pop] Prompting ${depRepoName} to add ${agent.repoName} to its dependedBy`);
+                depAgent.connection.prompt({
+                  sessionId: depAgent.sessionId,
+                  prompt: [{ type: "text", text: `In \`acp-manifest.json\` at the repo root, add "${agent.repoName}" to the \`dependedBy\` array if it is not already present. Keep all other fields unchanged. Do not explain, just make the edit.` }],
+                }).then(() => {
+                  refreshAgentManifestFromDisk(depAgentId);
+                  const refreshedGraph = buildDependencyGraph(agents);
+                  socket.emit("agent:snapshot", buildAgentSnapshot(depAgentId, refreshedGraph));
+                  emitDependencyGraphState(socket, refreshedGraph);
+                }).catch((err) => {
+                  console.warn(`[manifest:cross-pop] Failed to prompt ${depRepoName}: ${err.message}`);
+                });
+              }
+            }
+          }
+        } catch {
+          agent.manifestMissing = true;
+          console.log(`[agent:${agentId.slice(0, 8)}] Manifest parse failed for ${agent.repoName} — marking missing`);
+        }
+      } else if (responseText.startsWith("NO_MANIFEST:")) {
+        agent.manifestMissing = true;
+        console.log(`[agent:${agentId.slice(0, 8)}] No manifest for ${agent.repoName}: ${responseText}`);
+      }
+
+      refreshAgentManifestFromDisk(agentId);
+
       console.log(
         `[agent:${agentId.slice(0, 8)}] Verification complete (${verifyResult.stopReason})`,
       );
     } catch (verifyErr) {
+      agent.capturingManifest = false;
       // Verification failed but the session is still usable — mark ready anyway
       console.warn(
         `[agent:${agentId.slice(0, 8)}] Verification prompt failed: ${verifyErr.message}`,
@@ -522,14 +987,12 @@ async function createAgent(
       agent.status = "ready";
     }
 
-    socket.emit("agent:created", {
-      agentId,
-      repoUrl,
-      repoName,
-      repoPath,
-      role,
-      status: "ready",
-    });
+    const graph = buildDependencyGraph(agents);
+    socket.emit("agent:created", buildAgentSnapshot(agentId, graph, "ready"));
+    emitDependencyGraphState(socket, graph);
+    
+    // Auto-save on successful creation
+    saveCurrentSession();
   } catch (err) {
     console.error(`[agent:create] ACP init failed: ${err.message}`);
     copilotProcess.kill();
@@ -547,6 +1010,8 @@ async function createAgent(
 
 io.on("connection", (socket) => {
   console.log(`[socket] Client connected: ${socket.id}`);
+  // Send current mission context to reconnecting clients
+  socket.emit("mission:updated", { text: globalMissionContext });
 
   // -- Create a new agent for a repo --
   socket.on(
@@ -569,6 +1034,8 @@ io.on("connection", (socket) => {
       console.log(
         `[socket] agent:create \u2192 ${repoUrl} (role: ${role || "worker"}) base: ${repoBaseDir || REPO_BASE_DIR} reuse: ${!!reuseExisting}`,
       );
+      // Track the base dir so session:load respawn can reuse it
+      if (repoBaseDir) currentRepoBaseDir = repoBaseDir;
       await createAgent(
         socket,
         repoUrl,
@@ -581,62 +1048,7 @@ io.on("connection", (socket) => {
 
   // -- Send a prompt to an existing agent --
   socket.on("agent:prompt", async ({ agentId, text }) => {
-    if (!agentId || typeof text !== "string" || text.length === 0) {
-      socket.emit("agent:error", {
-        agentId,
-        error: "agentId and non-empty text are required",
-      });
-      return;
-    }
-    const agent = agents.get(agentId);
-    if (!agent) {
-      socket.emit("agent:error", { agentId, error: "Agent not found" });
-      return;
-    }
-
-    console.log(
-      `[socket] agent:prompt → ${agentId.slice(0, 8)} (${agent.repoName}): ${text.slice(0, 80)}`,
-    );
-    agent.status = "busy";
-    socket.emit("agent:update", { agentId, type: "status", content: "busy" });
-
-    const startTime = Date.now();
-    try {
-      const { promise: promptPromise, heartbeat } = withActivityTimeout(
-        agent.connection.prompt({
-          sessionId: agent.sessionId,
-          prompt: [{ type: "text", text }],
-        }),
-        PROMPT_INACTIVITY_TIMEOUT_MS,
-        `Prompt stalled — no activity for ${PROMPT_INACTIVITY_TIMEOUT_MS / 1000}s`,
-      );
-      // Store heartbeat so sessionUpdate can reset the deadline on each chunk
-      agent.heartbeat = heartbeat;
-      const result = await promptPromise;
-
-      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(
-        `[agent:prompt] ${agentId.slice(0, 8)} completed in ${duration}s (${result.stopReason})`,
-      );
-
-      agent.status = "ready";
-      socket.emit("agent:prompt_complete", {
-        agentId,
-        stopReason: result.stopReason,
-      });
-    } catch (err) {
-      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.error(
-        `[agent:prompt] ${agentId.slice(0, 8)} failed after ${duration}s: ${err.message}`,
-      );
-      agent.status = "error";
-      socket.emit("agent:error", {
-        agentId,
-        error: `Prompt failed: ${err.message}`,
-      });
-    } finally {
-      agent.heartbeat = null;
-    }
+    await promptAgent(socket, agentId, text);
   });
 
   // -- Resolve a pending permission request --
@@ -658,6 +1070,65 @@ io.on("connection", (socket) => {
       outcome: { outcome: "selected", optionId },
     });
     agent.permissionResolver = null;
+  });
+
+  socket.on("orchestrator:approve_routing_plan", async ({ planId, routes }) => {
+    const plan = pendingRoutingPlans.get(planId);
+    if (!plan) {
+      socket.emit("agent:error", { agentId: null, error: "Routing plan not found" });
+      return;
+    }
+
+    pendingRoutingPlans.delete(planId);
+    const approvedRoutes =
+      Array.isArray(routes) && routes.length > 0 ? routes : plan.routes;
+    const cascadeRun =
+      plan.cascadeRunId
+        ? cascadeRuns.get(plan.cascadeRunId) || {
+            runId: plan.cascadeRunId,
+            visitedRepoNames: new Set([plan.sourceRepoName.toLowerCase()]),
+          }
+        : null;
+
+    if (cascadeRun) {
+      cascadeRun.visitedRepoNames.add(plan.sourceRepoName.toLowerCase());
+      cascadeRuns.set(plan.cascadeRunId, cascadeRun);
+    }
+
+    for (const route of approvedRoutes) {
+      if (cascadeRun?.visitedRepoNames.has(route.repoName.toLowerCase())) {
+        continue;
+      }
+
+      const targetEntry = [...agents.entries()].find(
+        ([, agent]) =>
+          agent.role === "worker" &&
+          agent.repoName.toLowerCase() === route.repoName.toLowerCase(),
+      );
+
+      if (!targetEntry) {
+        socket.emit("agent:error", {
+          agentId: null,
+          error: `Routing target not found: ${route.repoName}`,
+        });
+        continue;
+      }
+
+      const [targetAgentId] = targetEntry;
+      cascadeRun?.visitedRepoNames.add(route.repoName.toLowerCase());
+      await promptAgent(socket, targetAgentId, route.promptText, {
+        cascadeRunId: plan.cascadeRunId,
+        forceCascade: true,
+      });
+    }
+  });
+
+  socket.on("orchestrator:cancel_routing_plan", ({ planId }) => {
+    const plan = pendingRoutingPlans.get(planId);
+    pendingRoutingPlans.delete(planId);
+    if (plan?.cascadeRunId) {
+      cascadeRuns.delete(plan.cascadeRunId);
+    }
   });
 
   // -- Stop an agent --
@@ -737,17 +1208,22 @@ io.on("connection", (socket) => {
       // Fan out prompts — each runs independently so one failure doesn't block others
       let completedCount = 0;
       const totalCount = readyAgents.length;
+      const broadcastCascadeCandidates = [];
       const promises = readyAgents.map(async ([agentId, agent]) => {
         const startTime = Date.now();
+        agent.lastPromptOutput = [];
         try {
           console.log(
             `[agent:prompt_all] Starting ${agentId.slice(0, 8)} (${agent.repoName})`,
           );
 
+          const missionPrefix = buildMissionPrefix();
+          const crossRepoCtx = buildCrossRepoContext(agentId);
+          const enrichedBroadcastText = missionPrefix + (crossRepoCtx ? crossRepoCtx + text : text);
           const { promise: promptPromise, heartbeat } = withActivityTimeout(
             agent.connection.prompt({
               sessionId: agent.sessionId,
-              prompt: [{ type: "text", text }],
+              prompt: [{ type: "text", text: enrichedBroadcastText }],
             }),
             PROMPT_INACTIVITY_TIMEOUT_MS,
             `Broadcast prompt stalled — no activity for ${PROMPT_INACTIVITY_TIMEOUT_MS / 1000}s`,
@@ -768,6 +1244,11 @@ io.on("connection", (socket) => {
             agentId,
             stopReason: result.stopReason,
           });
+
+          broadcastCascadeCandidates.push({
+            agentId,
+            accumulatedOutput: (agent.lastPromptOutput || []).join(""),
+          });
         } catch (err) {
           const duration = ((Date.now() - startTime) / 1000).toFixed(1);
           console.error(
@@ -783,6 +1264,7 @@ io.on("connection", (socket) => {
           });
         } finally {
           agent.heartbeat = null;
+          agent.lastPromptOutput = undefined;
           // Emit progress so the frontend can show "X of Y agents done"
           completedCount += 1;
           socket.emit("agent:broadcast_progress", {
@@ -829,6 +1311,8 @@ io.on("connection", (socket) => {
           (a) =>
             a.role === "orchestrator" && a.sessionId && a.status === "ready",
         );
+
+        let postSynthesisWork = Promise.resolve();
 
         if (orchestrator) {
           const orchestratorId = [...agents.entries()].find(
@@ -886,7 +1370,7 @@ io.on("connection", (socket) => {
             );
           orchestrator.heartbeat = synthHeartbeat;
 
-          synthPromise
+          postSynthesisWork = synthPromise
             .then((result) => {
               const duration = ((Date.now() - startTime) / 1000).toFixed(1);
               console.log(
@@ -914,22 +1398,227 @@ io.on("connection", (socket) => {
             });
         }
 
+        void postSynthesisWork.finally(async () => {
+          for (const candidate of broadcastCascadeCandidates) {
+            await runCascadeAnalysis(
+              socket,
+              candidate.agentId,
+              text,
+              candidate.accumulatedOutput,
+            );
+          }
+        });
+
         activeBroadcastWave = null;
       }
 
       // Notify the frontend the entire broadcast round is done
       socket.emit("agent:prompt_all_complete");
+      
+      // Auto-save history
+      saveCurrentSession();
     },
   );
+
+
+
+  // -- Session Management --
+  socket.on("session:list", () => {
+    socket.emit("session:list", listSessions());
+  });
+
+  socket.on("session:save", ({ name }) => {
+    if (name) currentSessionName = name;
+    saveCurrentSession();
+    socket.emit("session:list", listSessions());
+  });
+
+  socket.on("session:delete", ({ name }) => {
+    const result = deleteSession(name);
+    if (result.success) {
+      socket.emit("session:list", listSessions());
+    } else {
+      socket.emit("session:error", { message: result.error });
+    }
+  });
+
+  socket.on("session:load", async ({ name, mode }) => {
+    console.log(`[session] Loading session: ${name} (mode: ${mode || "display"})`);
+    
+    // Stop all running agents
+    shutdownAll();
+    
+    // Clear maps
+    agents.clear();
+    workItems.clear();
+    broadcastHistory.length = 0;
+
+    const result = loadSession(name);
+    if (!result.success) {
+      socket.emit("agent:error", { agentId: null, error: result.error });
+      return;
+    }
+
+    currentSessionName = name;
+    const { data } = result;
+
+    // Restore WorkItems
+    if (Array.isArray(data.workItems)) {
+      data.workItems.forEach(item => workItems.set(item.url, item));
+    }
+    
+    // Restore BroadcastHistory
+    if (Array.isArray(data.broadcastHistory)) {
+      broadcastHistory.push(...data.broadcastHistory);
+    }
+
+    // Restore Agents as stopped (display state), then optionally respawn
+    if (Array.isArray(data.agents)) {
+      for (const a of data.agents) {
+        agents.set(a.id, {
+          process: null,
+          connection: null,
+          sessionId: null,
+          repoUrl: a.repoUrl,
+          repoName: a.repoName,
+          repoPath: a.repoPath,
+          repoReused: a.repoReused,
+          role: a.role,
+          status: "stopped",
+          manifest: a.manifest,
+          manifestMissing: a.manifestMissing
+        });
+      }
+
+      const graph = refreshAllAgentManifestsFromDisk();
+
+      emitAgentSnapshots(socket, graph, "agent:created", "stopped");
+      emitDependencyGraphState(socket, graph);
+
+      // Respawn mode: re-create each agent process using the previously-cloned repo
+      if (mode === "respawn") {
+        for (const a of data.agents) {
+          try {
+            await createAgent(socket, a.repoUrl, a.role, currentRepoBaseDir, true, a.id);
+          } catch (err) {
+            socket.emit("agent:error", { agentId: a.id, error: `Respawn failed: ${err.message}` });
+          }
+        }
+      }
+    }
+
+    socket.emit("workitems:updated", { items: [...workItems.values()] });
+    socket.emit("broadcast:history", { history: broadcastHistory });
+    socket.emit("session:loaded", { name });
+  });
+
+  // -- Restart an agent --
+  socket.on("agent:restart", async ({ agentId }) => {
+    const agent = agents.get(agentId);
+    if (!agent) {
+      socket.emit("agent:error", { agentId, error: "Agent not found" });
+      return;
+    }
+    if (agent.status !== "stopped") {
+      socket.emit("agent:error", { agentId, error: "Agent is not stopped" });
+      return;
+    }
+
+    console.log(`[agent:restart] Restarting ${agentId} (${agent.repoName})`);
+    
+    try {
+      await createAgent(socket, agent.repoUrl, agent.role, undefined, agent.repoReused, agentId);
+    } catch (err) {
+      socket.emit("agent:error", { agentId, error: err.message });
+    }
+  });
 
   // -- Request current list of detected work items (issues / PRs) --
   socket.on("workitems:list", () => {
     socket.emit("workitems:updated", { items: [...workItems.values()] });
   });
 
+  // -- Mission / global context --
+  socket.on("mission:set", ({ text }) => {
+    globalMissionContext = typeof text === "string" ? text : "";
+    console.log(`[mission] Context updated (${globalMissionContext.length} chars)`);
+    // Broadcast to ALL connected clients so every tab stays in sync
+    io.emit("mission:updated", { text: globalMissionContext });
+  });
+
+  socket.on("mission:get", () => {
+    socket.emit("mission:updated", { text: globalMissionContext });
+  });
+
   // -- Request broadcast history --
   socket.on("broadcast:list_history", () => {
     socket.emit("broadcast:history", { history: broadcastHistory });
+  });
+
+  // -- Create acp-manifest.json for an agent --
+  socket.on("orchestrator:create_manifest", ({ agentId }) => {
+    const agent = agents.get(agentId);
+    if (!agent) {
+      socket.emit("agent:error", { agentId, error: "Agent not found" });
+      return;
+    }
+    if (!agent.sessionId || agent.status === "busy") {
+      socket.emit("agent:error", { agentId, error: "Agent is not ready" });
+      return;
+    }
+    const inferredRelationships = inferManifestRelationships(agents, agentId);
+    const dependsOnSeed = JSON.stringify(inferredRelationships.dependsOn);
+    const dependedBySeed = JSON.stringify(inferredRelationships.dependedBy);
+    const relationshipGuidance =
+      inferredRelationships.dependsOn.length > 0 || inferredRelationships.dependedBy.length > 0
+        ? `Use the following relationship seeds inferred from other loaded repos in this session unless the repo contents clearly contradict them:\n- dependsOn: ${dependsOnSeed}\n- dependedBy: ${dependedBySeed}`
+        : "No dependency relationships could be inferred from the currently loaded repos, so leave the relationship arrays empty unless the repo contents clearly show otherwise.";
+
+    const manifestPrompt = `Create a file named \`acp-manifest.json\` at the root of this repository with the following structure:
+{
+  "repoName": "${agent.repoName}",
+  "description": "<one-sentence description of this repo>",
+  "role": "<library|api|webapp|service|other>",
+  "techStack": ["<primary language or framework>"],
+  "dependsOn": ${dependsOnSeed},
+  "dependedBy": ${dependedBySeed}
+}
+Fill in the description, role, and techStack based on your knowledge of this repo. ${relationshipGuidance} Return only the file contents by making the edit.`;
+
+    agent.status = "busy";
+    socket.emit("agent:update", { agentId, type: "status", content: "busy" });
+
+    const { promise: mfPromise, heartbeat: mfHeartbeat } = withActivityTimeout(
+      agent.connection.prompt({
+        sessionId: agent.sessionId,
+        prompt: [{ type: "text", text: manifestPrompt }],
+      }),
+      PROMPT_INACTIVITY_TIMEOUT_MS,
+      "Manifest creation stalled",
+    );
+    agent.heartbeat = mfHeartbeat;
+
+    mfPromise
+      .then(() => {
+        agent.status = "ready";
+        refreshAgentManifestFromDisk(agentId);
+        const graph = buildDependencyGraph(agents);
+        socket.emit("agent:snapshot", buildAgentSnapshot(agentId, graph));
+        emitDependencyGraphState(socket, graph);
+        socket.emit("agent:prompt_complete", { agentId, stopReason: "manifest_created" });
+      })
+      .catch((err) => {
+        agent.status = "error";
+        socket.emit("agent:error", { agentId, error: `Manifest creation failed: ${err.message}` });
+      })
+      .finally(() => { agent.heartbeat = null; });
+  });
+
+  // -- Request current dependency graph --
+  socket.on("graph:list", () => {
+    const graph = refreshAllAgentManifestsFromDisk();
+    emitAgentSnapshots(socket, graph);
+    emitDependencyGraphState(socket, graph);
   });
 
   socket.on("disconnect", () => {
@@ -971,6 +1660,9 @@ function stopAgent(agentId) {
 
   agents.delete(agentId);
   console.log(`[agent:${agentId.slice(0, 8)}] Stopped and cleaned up`);
+  
+  // Auto-save after stop
+  saveCurrentSession();
 }
 
 function shutdownAll() {

@@ -1,7 +1,8 @@
 import React from "react";
-import { Terminal, FolderOpen } from "lucide-react";
+import { Terminal, FolderOpen, Bell, BellOff, BellRing } from "lucide-react";
+import SessionControl from "./SessionControl";
 
-export default function Header({ connected, repoBaseDir, onRepoBashDirChange, reuseExisting, onReuseExistingChange }) {
+export default function Header({ connected, repoBaseDir, onRepoBashDirChange, reuseExisting, onReuseExistingChange, socket, browserPermission, onRequestBrowserPermission }) {
   return (
     <header className="border-b border-white/10 bg-white/[0.03] backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
@@ -52,6 +53,32 @@ export default function Header({ connected, repoBaseDir, onRepoBashDirChange, re
           )}
         </div>
 
+        {/* Browser notification permission button */}
+        {browserPermission !== "granted" && (
+          <button
+            onClick={onRequestBrowserPermission}
+            title={browserPermission === "denied" ? "Notifications blocked by browser" : "Enable background notifications"}
+            disabled={browserPermission === "denied"}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all border ${
+              browserPermission === "denied"
+                ? "border-white/5 text-gray-600 cursor-not-allowed"
+                : "border-white/10 text-gray-400 hover:text-purple-300 hover:border-purple-500/30 hover:bg-purple-500/10 cursor-pointer"
+            }`}
+          >
+            <BellOff className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Notify</span>
+          </button>
+        )}
+        {browserPermission === "granted" && (
+          <div
+            title="Background notifications enabled"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-purple-500/20 text-purple-400"
+          >
+            <BellRing className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Alerts on</span>
+          </div>
+        )}
+
         {/* Connection indicator */}
         <div className="flex items-center gap-2 text-sm shrink-0">
           <span
@@ -62,6 +89,11 @@ export default function Header({ connected, repoBaseDir, onRepoBashDirChange, re
           <span className={connected ? "text-green-300" : "text-red-300"}>
             {connected ? "Connected" : "Disconnected"}
           </span>
+        </div>
+
+        {/* Session Control */}
+        <div className="border-l border-white/10 pl-4 ml-2">
+          <SessionControl socket={socket} />
         </div>
       </div>
     </header>

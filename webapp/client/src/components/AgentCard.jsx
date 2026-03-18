@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Send, Terminal, GitBranch, Loader2 } from "lucide-react";
+import { X, Send, Terminal, GitBranch, Loader2, RotateCw } from "lucide-react";
+import { suggestRepoUrl } from "../dependencySuggestions";
 
 const statusConfig = {
   ready:        { label: "Ready",        dot: "bg-green-400",  text: "text-green-300",  pill: "bg-green-950/60 border-green-500/25",   pulse: false },
@@ -7,6 +8,7 @@ const statusConfig = {
   error:        { label: "Error",        dot: "bg-red-400",    text: "text-red-300",    pill: "bg-red-950/60 border-red-500/25",       pulse: false },
   initializing: { label: "Initializing", dot: "bg-blue-400",   text: "text-blue-300",   pill: "bg-blue-950/60 border-blue-500/25",     pulse: true  },
   spawning:     { label: "Spawning",     dot: "bg-purple-400", text: "text-purple-300", pill: "bg-purple-950/60 border-purple-500/25",  pulse: true  },
+  stopped:      { label: "Stopped",      dot: "bg-gray-400",   text: "text-gray-300",   pill: "bg-gray-800/60 border-gray-600/25",      pulse: false },
 };
 
 function extractRepoName(url) {
@@ -18,8 +20,9 @@ function extractRepoName(url) {
   }
 }
 
-export default function AgentCard({ agent, onSendPrompt, onStop, onPermissionResponse }) {
+export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPermissionResponse, onCreateManifest, onLoadWorker }) {
   const [input, setInput] = useState("");
+  const [unloadedOpen, setUnloadedOpen] = useState(false);
   const outputRef = useRef(null);
   const bottomRef = useRef(null);
   const status = statusConfig[agent.status] || statusConfig.initializing;
@@ -82,14 +85,69 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onPermissionRes
               </span>
               {status.label}
             </span>
-            <button
-              onClick={() => onStop(agent.agentId)}
-              className="p-1 rounded-md hover:bg-white/10 text-gray-400 hover:text-red-400 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            {agent.impactChecking && (
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/30 text-amber-300 animate-pulse">
+                Impact check…
+              </span>
+            )}
+            {agent.status === "stopped" ? (
+              <button
+                onClick={() => onRestart?.(agent.agentId)}
+                className="p-1 rounded-md hover:bg-white/10 text-gray-400 hover:text-green-400 transition-colors"
+                title="Restart Agent"
+              >
+                <RotateCw className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={() => onStop(agent.agentId)}
+                className="p-1 rounded-md hover:bg-white/10 text-gray-400 hover:text-red-400 transition-colors"
+                title="Stop Agent"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Dependency pills, manifest chip, unloaded deps */}
+        {(agent.manifest?.dependsOn?.length > 0 || agent.manifest?.dependedBy?.length > 0 || agent.manifestMissing || agent.unloadedDeps?.length > 0) && (
+          <div className="px-4 py-2 border-b border-white/10 flex flex-wrap items-center gap-2">
+            {agent.manifest?.dependsOn?.length > 0 && (<>
+              <span className="text-xs text-gray-500">uses:</span>
+              {agent.manifest.dependsOn.map((dep, i) => (
+                <span key={i} className="bg-teal-950/60 border border-teal-500/30 text-teal-300 text-xs px-2 py-0.5 rounded-full">{dep}</span>
+              ))}
+            </>)}
+            {agent.manifest?.dependedBy?.length > 0 && (<>
+              <span className="text-xs text-gray-500">used by:</span>
+              {agent.manifest.dependedBy.map((dep, i) => (
+                <span key={i} className="bg-gray-800/60 border border-gray-600/30 text-gray-400 text-xs px-2 py-0.5 rounded-full">{dep}</span>
+              ))}
+            </>)}
+            {agent.manifestMissing && !agent.manifest && (
+              <button onClick={() => onCreateManifest?.(agent.agentId)} className="text-xs px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/30 text-amber-300 hover:bg-amber-900/60 transition-colors">
+                No manifest · Create?
+              </button>
+            )}
+            {agent.unloadedDeps?.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1">
+                <button onClick={() => setUnloadedOpen((v) => !v)} className="text-xs px-2 py-0.5 rounded-full bg-blue-950/60 border border-blue-500/30 text-blue-300">
+                  {agent.unloadedDeps.length} dep{agent.unloadedDeps.length !== 1 ? "s" : ""} not loaded
+                </button>
+                {unloadedOpen && agent.unloadedDeps.map((dep, i) => (
+                  <button key={i} onClick={() => {
+                    const suggestedUrl = dep.suggestedUrl || suggestRepoUrl(agent.repoUrl, dep.repoName);
+                    const url = prompt(`Repo URL for ${dep.repoName}`, suggestedUrl);
+                    if (url) onLoadWorker?.(url);
+                  }} className="text-xs px-2 py-0.5 rounded-full bg-blue-950/40 border border-blue-500/20 text-blue-300 hover:bg-blue-900/40 transition-colors">
+                    {dep.repoName} ({dep.direction}) · Load as Worker
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Output area — slightly taller with better text contrast */}
         <div

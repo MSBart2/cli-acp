@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import AgentCard from "../components/AgentCard";
 
@@ -137,5 +137,66 @@ describe("AgentCard", () => {
     const buttons = screen.getAllByRole("button");
     fireEvent.click(buttons[0]);
     expect(stoppedId).toBe("test-agent-1");
+  });
+
+  describe("dependency-awareness features", () => {
+    it("shows teal dependency pills for dependsOn", () => {
+      const agent = makeAgent({ manifest: { dependsOn: ["class-lib-a"], dependedBy: [] } });
+      render(<AgentCard agent={agent} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} />);
+      expect(screen.getByText("class-lib-a")).toBeInTheDocument();
+    });
+
+    it("shows gray dependency pills for dependedBy", () => {
+      const agent = makeAgent({ manifest: { dependsOn: [], dependedBy: ["webapp"] } });
+      render(<AgentCard agent={agent} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} />);
+      expect(screen.getByText("webapp")).toBeInTheDocument();
+    });
+
+    it("shows 'No manifest · Create?' button when manifestMissing is true", () => {
+      const agent = makeAgent({ manifestMissing: true, manifest: null });
+      render(<AgentCard agent={agent} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} onCreateManifest={noop} />);
+      expect(screen.getByText("No manifest · Create?")).toBeInTheDocument();
+    });
+
+    it("calls onCreateManifest when 'No manifest · Create?' button is clicked", () => {
+      const onCreateManifest = vi.fn();
+      const agent = makeAgent({ manifestMissing: true, manifest: null });
+      render(<AgentCard agent={agent} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} onCreateManifest={onCreateManifest} />);
+      fireEvent.click(screen.getByText("No manifest · Create?"));
+      expect(onCreateManifest).toHaveBeenCalledWith("test-agent-1");
+    });
+
+    it("shows 'N deps not loaded' chip when unloadedDeps is non-empty", () => {
+      const agent = makeAgent({ unloadedDeps: [{ repoName: "missing-lib", direction: "dependsOn" }] });
+      render(<AgentCard agent={agent} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} />);
+      expect(screen.getByText(/dep.*not loaded/)).toBeInTheDocument();
+    });
+
+    it("prefills the suggested repo URL when loading an unloaded dependency", () => {
+      const onLoadWorker = vi.fn();
+      const agent = makeAgent({
+        repoUrl: "https://github.com/myorg/api-gateway",
+        unloadedDeps: [{ repoName: "webapp", direction: "downstream" }],
+      });
+      vi.stubGlobal("prompt", vi.fn().mockReturnValue("https://github.com/myorg/webapp"));
+
+      render(<AgentCard agent={agent} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} onLoadWorker={onLoadWorker} />);
+
+      fireEvent.click(screen.getByText(/dep.*not loaded/));
+      fireEvent.click(screen.getByText(/webapp \(downstream\) · Load as Worker/i));
+
+      expect(globalThis.prompt).toHaveBeenCalledWith(
+        "Repo URL for webapp",
+        "https://github.com/myorg/webapp",
+      );
+      expect(onLoadWorker).toHaveBeenCalledWith("https://github.com/myorg/webapp");
+      vi.unstubAllGlobals();
+    });
+
+    it("shows pulsing impact badge when impactChecking is true", () => {
+      const agent = makeAgent({ impactChecking: true });
+      render(<AgentCard agent={agent} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} />);
+      expect(screen.getByText("Impact check…")).toBeInTheDocument();
+    });
   });
 });

@@ -195,6 +195,9 @@ Both client and server use **Vitest**. Tests live next to the code they cover:
   assertion phases.
 - **Mock Socket.IO sparingly** — most component tests render in isolation
   without needing a socket mock.
+- **For socket-heavy workflow coverage, prefer `App.jsx` integration tests** —
+  mock `socket.io-client` once, stub child components lightly, and assert on
+  emitted events plus top-level state transitions rather than deep DOM details.
 - **One assertion focus per test** — a test should verify one behaviour;
   split multi-step scenarios into separate tests.
 
