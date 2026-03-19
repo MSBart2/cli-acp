@@ -12,6 +12,7 @@ describe("OrchestratorInput", () => {
     expect(
       screen.getByPlaceholderText("https://github.com/owner/orchestrator-repo"),
     ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Default model")).toBeInTheDocument();
     expect(screen.getByText("Launch Orchestrator")).toBeInTheDocument();
   });
 
@@ -64,6 +65,7 @@ describe("OrchestratorInput", () => {
     expect(onLaunch).toHaveBeenCalledWith(
       "https://github.com/owner/repo",
       "orchestrator",
+      undefined,
     );
   });
 
@@ -80,6 +82,7 @@ describe("OrchestratorInput", () => {
     expect(onLaunch).toHaveBeenCalledWith(
       "https://github.com/owner/repo",
       "orchestrator",
+      undefined,
     );
   });
 
@@ -96,6 +99,24 @@ describe("OrchestratorInput", () => {
     expect(onLaunch).toHaveBeenCalledWith(
       "https://github.com/owner/repo",
       "orchestrator",
+      undefined,
+    );
+  });
+
+  it("passes the selected model when provided", () => {
+    const onLaunch = vi.fn();
+    render(<OrchestratorInput onLaunch={onLaunch} connected={true} />);
+    fireEvent.change(screen.getByPlaceholderText("https://github.com/owner/orchestrator-repo"), {
+      target: { value: "https://github.com/owner/repo" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Default model"), {
+      target: { value: "gpt-5.4" },
+    });
+    fireEvent.click(screen.getByText("Launch Orchestrator"));
+    expect(onLaunch).toHaveBeenCalledWith(
+      "https://github.com/owner/repo",
+      "orchestrator",
+      "gpt-5.4",
     );
   });
 });

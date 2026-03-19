@@ -122,6 +122,31 @@ describe("AgentCard", () => {
     expect(screen.getByText(/7 earlier messages? hidden/)).toBeInTheDocument();
   });
 
+  it("does not auto-scroll the page when new output arrives", () => {
+    const scrollSpy = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollSpy,
+    });
+
+    const { rerender } = render(
+      <AgentCard agent={makeAgent()} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} />
+    );
+
+    rerender(
+      <AgentCard
+        agent={makeAgent({
+          output: [{ type: "text", content: "Fresh output" }],
+        })}
+        onSendPrompt={noop}
+        onStop={noop}
+        onPermissionResponse={noop}
+      />
+    );
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
   it("calls onStop when the close button is clicked", () => {
     let stoppedId = null;
     render(

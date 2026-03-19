@@ -67,6 +67,7 @@ import {
   listSessions,
   deleteSession,
   purgeOldSessions,
+  getRestorableAgents,
 } from "../sessionStore.js";
 
 const SESSIONS_DIR = join(homedir(), ".acp-orchestrator", "sessions");
@@ -79,6 +80,8 @@ function seedFile(filename, content, mtime = new Date()) {
 
 function makeSessionData(agentOverrides = {}) {
   return {
+    repoBaseDir: "C:\\repos",
+    reuseExisting: true,
     agents: new Map([
       [
         "agent-1",
@@ -87,6 +90,7 @@ function makeSessionData(agentOverrides = {}) {
           repoName: "repo-a",
           repoPath: "/tmp/acp-repos/repo-a",
           repoReused: false,
+          model: "gpt-5.4",
           role: "worker",
           manifest: { role: "api", techStack: ["node"] },
           manifestMissing: false,
@@ -124,12 +128,17 @@ describe("saveSession", () => {
     expect(saved.name).toBe("my-session");
     expect(saved).toHaveProperty("createdAt");
     expect(saved).toHaveProperty("savedAt");
+    expect(saved.settings).toEqual({
+      repoBaseDir: "C:\\repos",
+      reuseExisting: true,
+    });
     // agents: serialised from Map entries
     expect(Array.isArray(saved.agents)).toBe(true);
     expect(saved.agents).toHaveLength(1);
     expect(saved.agents[0].id).toBe("agent-1");
     expect(saved.agents[0].repoUrl).toBe("https://github.com/org/repo-a");
     expect(saved.agents[0].repoName).toBe("repo-a");
+    expect(saved.agents[0].model).toBe("gpt-5.4");
     expect(saved.agents[0].role).toBe("worker");
     // workItems / broadcastHistory
     expect(Array.isArray(saved.workItems)).toBe(true);
@@ -194,13 +203,24 @@ describe("saveSession", () => {
 
 describe("loadSession", () => {
   it("returns { success: true, data } for an existing session", () => {
-    const payload = { version: 1, name: "loaded", agents: [], workItems: [], broadcastHistory: [] };
+    const payload = {
+      version: 1,
+      name: "loaded",
+      settings: { repoBaseDir: "C:\\restored", reuseExisting: false },
+      agents: [],
+      workItems: [],
+      broadcastHistory: [],
+    };
     seedFile("loaded.json", JSON.stringify(payload));
 
     const result = loadSession("loaded");
     expect(result.success).toBe(true);
     expect(result.data.name).toBe("loaded");
     expect(result.data.version).toBe(1);
+    expect(result.data.settings).toEqual({
+      repoBaseDir: "C:\\restored",
+      reuseExisting: false,
+    });
   });
 
   it("accepts a name with .json suffix without doubling the extension", () => {
@@ -227,6 +247,105 @@ describe("loadSession", () => {
   });
 });
 
+describe("getRestorableAgents", () => {
+  it("prefers the saved agents array when present", () => {
+    const savedAgents = [{ id: "agent-1", repoUrl: "https://github.com/org/repo-a", repoName: "repo-a" }];
+
+    expect(getRestorableAgents({ agents: savedAgents, broadcastHistory: [] })).toEqual(savedAgents);
+  });
+
+  it("recovers the orchestrator from local repo metadata when the saved agents array was wiped", () => {
+    const repoPath = join("C:\\repos", "Animalia");
+    memDirs.add(repoPath);
+    memDirs.add(join(repoPath, ".git"));
+    memFiles.set(join(repoPath, ".git", "config"), {
+      content: [
+        "[core]",
+        "repositoryformatversion = 0",
+        "[remote \"origin\"]",
+        "url = https://github.com/org/Animalia.git",
+      ].join("\n"),
+      mtime: new Date(),
+    });
+
+    const recovered = getRestorableAgents({
+      name: "Animalia-2026-03-18",
+      settings: { repoBaseDir: "C:\\repos" },
+      agents: [],
+      broadcastHistory: [],
+    });
+
+    expect(recovered).toEqual([
+      {
+        id: "recovered-orchestrator-animalia",
+        repoUrl: "https://github.com/org/Animalia.git",
+        repoName: "Animalia",
+        repoPath,
+        repoReused: true,
+        model: null,
+        role: "orchestrator",
+        manifest: null,
+        manifestMissing: false,
+        recoveredFromHistory: true,
+      },
+    ]);
+  });
+
+  it("recovers unique worker agents from broadcast history when saved agents are missing", () => {
+    const recovered = getRestorableAgents({
+      agents: [],
+      broadcastHistory: [
+        {
+          results: [
+            {
+              agentId: "worker-1",
+              repoUrl: "https://github.com/org/repo-a",
+              repoName: "repo-a",
+            },
+            {
+              agentId: "worker-1",
+              repoUrl: "https://github.com/org/repo-a",
+              repoName: "repo-a",
+            },
+            {
+              agentId: "worker-2",
+              repoUrl: "https://github.com/org/repo-b",
+              repoName: "repo-b",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(recovered).toEqual([
+      {
+        id: "worker-1",
+        repoUrl: "https://github.com/org/repo-a",
+        repoName: "repo-a",
+        repoPath: null,
+        repoReused: true,
+        model: null,
+        role: "worker",
+        manifest: null,
+        manifestMissing: false,
+        recoveredFromHistory: true,
+      },
+      {
+        id: "worker-2",
+        repoUrl: "https://github.com/org/repo-b",
+        repoName: "repo-b",
+        repoPath: null,
+        repoReused: true,
+        model: null,
+        role: "worker",
+        manifest: null,
+        manifestMissing: false,
+        recoveredFromHistory: true,
+      },
+    ]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // listSessions
 // ---------------------------------------------------------------------------
@@ -242,6 +361,52 @@ describe("listSessions", () => {
     const sessions = listSessions();
     expect(sessions[0].id).toBe("beta");
     expect(sessions[1].id).toBe("alpha");
+  });
+
+  it("counts recovered history agents in the session summary", () => {
+    seedFile("history-only.json", JSON.stringify({
+      agents: [],
+      workItems: [],
+      broadcastHistory: [
+        {
+          results: [
+            {
+              agentId: "worker-1",
+              repoUrl: "https://github.com/org/repo-a",
+              repoName: "repo-a",
+            },
+          ],
+        },
+      ],
+    }));
+
+    const sessions = listSessions();
+    expect(sessions[0].summary.agentCount).toBe(1);
+  });
+
+  it("counts a recovered orchestrator in the session summary", () => {
+    const repoPath = join("C:\\repos", "Animalia");
+    memDirs.add(repoPath);
+    memDirs.add(join(repoPath, ".git"));
+    memFiles.set(join(repoPath, ".git", "config"), {
+      content: [
+        "[remote \"origin\"]",
+        "url = https://github.com/org/Animalia.git",
+      ].join("\n"),
+      mtime: new Date(),
+    });
+
+    seedFile("Animalia-2026-03-18.json", JSON.stringify({
+      name: "Animalia-2026-03-18",
+      settings: { repoBaseDir: "C:\\repos" },
+      agents: [],
+      workItems: [],
+      broadcastHistory: [],
+    }));
+
+    const sessions = listSessions();
+    const restored = sessions.find((session) => session.id === "Animalia-2026-03-18");
+    expect(restored.summary.agentCount).toBe(1);
   });
 
   it("includes correct summary counts for agentCount, workItemCount, broadcastCount", () => {

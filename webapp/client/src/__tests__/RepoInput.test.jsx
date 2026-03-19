@@ -9,6 +9,7 @@ describe("RepoInput", () => {
     render(<RepoInput {...defaults} />);
     expect(screen.getByText("Add Worker")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("https://github.com/owner/repo")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Default model")).toBeInTheDocument();
     expect(screen.getByText("Launch Worker")).toBeInTheDocument();
   });
 
@@ -40,7 +41,7 @@ describe("RepoInput", () => {
     const input = screen.getByPlaceholderText("https://github.com/owner/repo");
     fireEvent.change(input, { target: { value: "https://github.com/owner/repo" } });
     fireEvent.click(screen.getByText("Launch Worker"));
-    expect(onLaunch).toHaveBeenCalledWith("https://github.com/owner/repo", "worker");
+    expect(onLaunch).toHaveBeenCalledWith("https://github.com/owner/repo", "worker", undefined);
   });
 
   it("submits on Enter key press", () => {
@@ -49,7 +50,24 @@ describe("RepoInput", () => {
     const input = screen.getByPlaceholderText("https://github.com/owner/repo");
     fireEvent.change(input, { target: { value: "https://github.com/owner/repo" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onLaunch).toHaveBeenCalledWith("https://github.com/owner/repo", "worker");
+    expect(onLaunch).toHaveBeenCalledWith("https://github.com/owner/repo", "worker", undefined);
+  });
+
+  it("passes the selected model when provided", () => {
+    const onLaunch = vi.fn();
+    render(<RepoInput onLaunch={onLaunch} connected={true} />);
+    fireEvent.change(screen.getByPlaceholderText("https://github.com/owner/repo"), {
+      target: { value: "https://github.com/owner/repo" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Default model"), {
+      target: { value: "claude-sonnet-4.6" },
+    });
+    fireEvent.click(screen.getByText("Launch Worker"));
+    expect(onLaunch).toHaveBeenCalledWith(
+      "https://github.com/owner/repo",
+      "worker",
+      "claude-sonnet-4.6",
+    );
   });
 
   it("shows subheading text", () => {

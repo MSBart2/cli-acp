@@ -57,7 +57,11 @@ vi.mock("../hooks/useNotifications", () => ({
 }));
 
 vi.mock("../components/Header", () => ({
-  default: ({ connected }) => <div data-testid="header">connected:{String(connected)}</div>,
+  default: ({ connected, repoBaseDir, reuseExisting }) => (
+    <div data-testid="header">
+      connected:{String(connected)};base:{repoBaseDir};reuse:{String(reuseExisting)}
+    </div>
+  ),
 }));
 
 vi.mock("../components/RepoInput", () => ({
@@ -152,11 +156,18 @@ vi.mock("../components/RoutingPlanPanel", () => ({
 }));
 
 vi.mock("../components/WorkItemTracker", () => ({
-  default: () => <div data-testid="work-item-tracker" />,
+  default: ({ items, onDismiss }) => (
+    <div data-testid="work-item-tracker">
+      items:{items.length}
+      <button onClick={onDismiss}>dismiss-work-items</button>
+    </div>
+  ),
 }));
 
 vi.mock("../components/BroadcastHistory", () => ({
-  default: () => <div data-testid="broadcast-history" />,
+  default: ({ history }) => (
+    <div data-testid="broadcast-history">history:{history.length}</div>
+  ),
 }));
 
 import App from "../App";
@@ -292,6 +303,43 @@ describe("App dependency workflows", () => {
       role: "worker",
       repoBaseDir: "C:\\users\\rmathis\\source",
       reuseExisting: true,
+      model: undefined,
+    });
+  });
+
+  it("applies restored session settings so follow-up worker loads use the restored values", () => {
+    render(<App />);
+
+    emitSocket("agent:created", buildAgent({
+      agentId: "orch-1",
+      repoName: "ops",
+      role: "orchestrator",
+    }));
+    emitSocket("agent:created", buildAgent({
+      agentId: "worker-1",
+      repoName: "api",
+      unloadedDeps: [{ repoName: "webapp", direction: "downstream" }],
+    }));
+
+    emitSocket("session:loaded", {
+      name: "saved-session",
+      settings: {
+        repoBaseDir: "C:\\restored-base",
+        reuseExisting: false,
+      },
+    });
+
+    expect(screen.getByTestId("header")).toHaveTextContent(
+      "base:C:\\restored-base;reuse:false",
+    );
+
+    fireEvent.click(screen.getByText("load-worker"));
+    expect(mockSocket.emit).toHaveBeenCalledWith("agent:create", {
+      repoUrl: "https://github.com/acme/webapp.git",
+      role: "worker",
+      repoBaseDir: "C:\\restored-base",
+      reuseExisting: false,
+      model: undefined,
     });
   });
 
@@ -383,5 +431,63 @@ describe("App dependency workflows", () => {
 
     fireEvent.click(screen.getByText("refresh-graph"));
     expect(mockSocket.emit).toHaveBeenCalledWith("graph:list");
+  });
+
+  it("renders restored worker cards even when no orchestrator is present", () => {
+    render(<App />);
+
+    emitSocket("agent:created", buildAgent({
+      agentId: "worker-api",
+      repoName: "api",
+      status: "stopped",
+    }));
+
+    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent("status:stopped");
+    expect(screen.getByTestId("repo-input")).toBeInTheDocument();
+  });
+
+  it("can hydrate missing restored cards from agent:snapshot after session:loaded", () => {
+    render(<App />);
+
+    emitSocket("session:loaded", {
+      name: "saved-session",
+      settings: {
+        repoBaseDir: "C:\\restored-base",
+        reuseExisting: true,
+      },
+    });
+
+    expect(mockSocket.emit).toHaveBeenCalledWith("graph:list");
+
+    emitSocket("agent:snapshot", buildAgent({
+      agentId: "worker-api",
+      repoName: "api",
+      status: "stopped",
+    }));
+
+    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent("status:stopped");
+  });
+
+  it("surfaces restored broadcast history and work items for history-only sessions", () => {
+    render(<App />);
+
+    emitSocket("workitems:updated", {
+      items: [{ url: "https://github.com/acme/api/issues/1", type: "issue", number: 1 }],
+    });
+    emitSocket("broadcast:history", {
+      history: [
+        {
+          promptText: "audit repos",
+          timestamp: "2026-03-18T00:00:00.000Z",
+          results: [],
+        },
+      ],
+    });
+
+    expect(screen.getByTestId("work-item-tracker")).toHaveTextContent("items:1");
+    expect(screen.getByTestId("broadcast-history")).toHaveTextContent("history:1");
+
+    fireEvent.click(screen.getByText("dismiss-work-items"));
+    expect(screen.queryByTestId("work-item-tracker")).not.toBeInTheDocument();
   });
 });

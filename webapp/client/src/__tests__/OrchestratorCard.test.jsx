@@ -76,6 +76,26 @@ describe("OrchestratorCard", () => {
     expect(screen.getByText("Synthesis complete.")).toBeInTheDocument();
   });
 
+  it("does not auto-scroll the page when orchestrator output updates", () => {
+    const scrollSpy = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollSpy,
+    });
+
+    const { rerender } = render(<OrchestratorCard agent={makeAgent()} {...handlers} />);
+    rerender(
+      <OrchestratorCard
+        agent={makeAgent({
+          output: [{ type: "text", content: "Updated synthesis" }],
+        })}
+        {...handlers}
+      />,
+    );
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
   it("calls onStop when the stop button is clicked", () => {
     const onStop = vi.fn();
     render(

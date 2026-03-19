@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import { X, Send, Terminal, GitBranch, Loader2, RotateCw } from "lucide-react";
 import { suggestRepoUrl } from "../dependencySuggestions";
 
@@ -23,21 +23,12 @@ function extractRepoName(url) {
 export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPermissionResponse, onCreateManifest, onLoadWorker }) {
   const [input, setInput] = useState("");
   const [unloadedOpen, setUnloadedOpen] = useState(false);
-  const outputRef = useRef(null);
-  const bottomRef = useRef(null);
   const status = statusConfig[agent.status] || statusConfig.initializing;
 
   // Only show the last 3 output entries to keep cards compact
   const MAX_VISIBLE = 3;
   const visibleOutput = agent.output.slice(-MAX_VISIBLE);
   const truncatedCount = agent.output.length - visibleOutput.length;
-
-  // Smooth-scroll to the bottom whenever new output arrives
-  useEffect(() => {
-    if (typeof bottomRef.current?.scrollIntoView === "function") {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [agent.output]);
 
   const handleSend = () => {
     if (!input.trim() || agent.status === "busy" || agent.status === "initializing") return;
@@ -55,8 +46,8 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
   const canSend = agent.status === "ready";
 
   return (
-    <div className="card-appear relative rounded-xl p-[1px] bg-gradient-to-br from-purple-500/40 via-blue-500/40 to-teal-500/40 shadow-lg shadow-purple-500/5">
-      <div className="rounded-xl bg-[#12121a] overflow-hidden flex flex-col">
+    <div className="card-appear relative h-full min-h-[420px] rounded-xl p-[1px] bg-gradient-to-br from-purple-500/40 via-blue-500/40 to-teal-500/40 shadow-lg shadow-purple-500/5">
+      <div className="rounded-xl bg-[#12121a] overflow-hidden flex h-full flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-white/[0.03]">
           <div className="flex items-center gap-3 min-w-0">
@@ -73,6 +64,9 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
                   {agent.repoPath}
                 </p>
               )}
+              <p className="text-xs text-gray-500 truncate">
+                Model: {agent.model || "default"}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2 ml-3 shrink-0">
@@ -150,10 +144,7 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
         )}
 
         {/* Output area — slightly taller with better text contrast */}
-        <div
-          ref={outputRef}
-          className="px-4 py-3 bg-black/40 font-mono text-sm leading-relaxed max-h-[140px] overflow-y-auto min-h-[80px]"
-        >
+        <div className="min-h-[160px] flex-1 overflow-y-auto bg-black/40 px-4 py-3 font-mono text-sm leading-relaxed">
           {/* Spawning progress indicator — shows step-by-step status */}
           {agent.status === "spawning" && (
             <div className="flex flex-col items-center justify-center py-6 gap-3">
@@ -221,8 +212,6 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
             }
             return null;
           })}
-          {/* Invisible sentinel element the smooth-scroll targets */}
-          <div ref={bottomRef} />
         </div>
 
         {/* Permission banner — prominent amber highlight */}

@@ -1,5 +1,31 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
+
+const SOUND_PREF_KEY = "acp-alert-sounds-enabled";
+
+const SOUND_PATTERNS = {
+  complete: [
+    { frequency: 880, delay: 0, duration: 0.12, gain: 0.035 },
+    { frequency: 1174, delay: 0.14, duration: 0.16, gain: 0.03 },
+  ],
+  permission: [
+    { frequency: 784, delay: 0, duration: 0.09, gain: 0.035 },
+    { frequency: 988, delay: 0.11, duration: 0.09, gain: 0.03 },
+  ],
+  error: [
+    { frequency: 440, delay: 0, duration: 0.14, gain: 0.04, type: "triangle" },
+    { frequency: 330, delay: 0.16, duration: 0.18, gain: 0.035, type: "triangle" },
+  ],
+};
+
+function readStoredSoundPreference() {
+  try {
+    const stored = localStorage.getItem(SOUND_PREF_KEY);
+    return stored === null ? true : stored === "true";
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Custom hook that wires Socket.IO events to toast notifications and the
@@ -7,12 +33,19 @@ import toast from "react-hot-toast";
  * not visible, so they work as "background" alerts.
  *
  * @param {import("socket.io-client").Socket} socket - Socket.IO client instance
- * @returns {{ requestBrowserPermission: () => void, browserPermission: string }}
+ * @returns {{
+ *   requestBrowserPermission: () => void,
+ *   browserPermission: string,
+ *   soundEnabled: boolean,
+ *   toggleSoundEnabled: () => void,
+ * }}
  */
 export function useNotifications(socket) {
   const [browserPermission, setBrowserPermission] = useState(
     typeof Notification !== "undefined" ? Notification.permission : "denied"
   );
+  const [soundEnabled, setSoundEnabled] = useState(readStoredSoundPreference);
+  const audioContextRef = useRef(null);
 
   function showBrowserNotification(title, body) {
     if (typeof Notification === "undefined") return;
@@ -24,8 +57,67 @@ export function useNotifications(socket) {
 
   function requestBrowserPermission() {
     if (typeof Notification === "undefined") return;
-    Notification.requestPermission().then(setBrowserPermission);
+    return Notification.requestPermission().then((permission) => {
+      setBrowserPermission(permission);
+      return permission;
+    });
   }
+
+  const playSound = useCallback(async (kind) => {
+    if (!soundEnabled) return;
+    const AudioContextCtor =
+      globalThis.AudioContext || globalThis.webkitAudioContext;
+    const pattern = SOUND_PATTERNS[kind];
+    if (!AudioContextCtor || !pattern) return;
+
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContextCtor();
+      }
+
+      const context = audioContextRef.current;
+      if (context.state === "suspended" && typeof context.resume === "function") {
+        await context.resume();
+      }
+
+      const startTime = context.currentTime + 0.01;
+      for (const tone of pattern) {
+        const oscillator = context.createOscillator();
+        const gainNode = context.createGain();
+
+        oscillator.type = tone.type || "sine";
+        oscillator.frequency.setValueAtTime(tone.frequency, startTime + tone.delay);
+        gainNode.gain.setValueAtTime(0.0001, startTime + tone.delay);
+        gainNode.gain.exponentialRampToValueAtTime(
+          tone.gain,
+          startTime + tone.delay + 0.01,
+        );
+        gainNode.gain.exponentialRampToValueAtTime(
+          0.0001,
+          startTime + tone.delay + tone.duration,
+        );
+
+        oscillator.connect(gainNode);
+        gainNode.connect(context.destination);
+        oscillator.start(startTime + tone.delay);
+        oscillator.stop(startTime + tone.delay + tone.duration + 0.02);
+      }
+    } catch {
+      // Browsers may block audio until user interaction; fail quietly.
+    }
+  }, [soundEnabled]);
+
+  const toggleSoundEnabled = useCallback(() => {
+    setSoundEnabled((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(SOUND_PREF_KEY, String(next));
+      } catch {
+        // Ignore storage failures and keep the in-memory preference.
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!socket) return;
@@ -52,11 +144,13 @@ export function useNotifications(socket) {
       const message = `✗ Agent error: ${data.repoName} — ${truncated}`;
       toast.error(message);
       showBrowserNotification("Agent Error", message);
+      void playSound("error");
     }
 
     function onAgentPromptAllComplete() {
       toast.success("✓ Broadcast complete");
       showBrowserNotification("Broadcast complete", "All agents finished.");
+      void playSound("complete");
     }
 
     function onAgentPermissionRequest(data) {
@@ -65,14 +159,17 @@ export function useNotifications(socket) {
         "Permission needed",
         `${data.repoName} is waiting for your approval.`
       );
+      void playSound("permission");
     }
 
     function onSessionLoaded() {
       toast.success("Session loaded");
+      void playSound("complete");
     }
 
     function onSessionError(data) {
       toast.error(`Session error: ${data.message}`);
+      void playSound("error");
     }
 
     function onGraphInconsistency() {
@@ -100,7 +197,12 @@ export function useNotifications(socket) {
       socket.off("session:error", onSessionError);
       socket.off("graph:inconsistency", onGraphInconsistency);
     };
-  }, [socket]);
+  }, [playSound, socket]);
 
-  return { requestBrowserPermission, browserPermission };
+  return {
+    requestBrowserPermission,
+    browserPermission,
+    soundEnabled,
+    toggleSoundEnabled,
+  };
 }

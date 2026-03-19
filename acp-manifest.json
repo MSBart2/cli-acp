@@ -1,0 +1,15 @@
+{
+  "repoName": "cli-acp",
+  "description": "Web-based ACP orchestrator for launching and coordinating GitHub Copilot CLI agents across multiple repositories.",
+  "role": "webapp",
+  "techStack": [
+    "Node.js",
+    "Express",
+    "Socket.IO",
+    "React",
+    "Vite",
+    "Tailwind CSS"
+  ],
+  "dependsOn": [],
+  "dependedBy": []
+}

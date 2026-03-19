@@ -69,42 +69,40 @@ describe("BroadcastInput", () => {
     expect(onBroadcast).not.toHaveBeenCalled();
   });
 
-  // --- Synthesis instructions tests ---
+  // --- Orchestrator Focus tests ---
 
-  it("does not show synthesis toggle when hasOrchestrator is false", () => {
+  it("does not show orchestrator focus toggle when hasOrchestrator is false", () => {
     render(<BroadcastInput {...defaults} hasOrchestrator={false} />);
-    expect(screen.queryByText(/Synthesis instructions/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Orchestrator Focus/)).not.toBeInTheDocument();
   });
 
-  it("shows synthesis toggle when hasOrchestrator is true", () => {
+  it("shows orchestrator focus toggle when hasOrchestrator is true", () => {
     render(<BroadcastInput {...defaults} hasOrchestrator={true} />);
-    expect(screen.getByText(/Synthesis instructions/)).toBeInTheDocument();
+    expect(screen.getByText(/Orchestrator Focus/)).toBeInTheDocument();
   });
 
-  it("hides the synthesis textarea by default when toggle is present", () => {
+  it("hides the orchestrator focus textarea by default when toggle is present", () => {
     render(<BroadcastInput {...defaults} hasOrchestrator={true} />);
-    // The placeholder for the synthesis textarea should not be visible yet
-    expect(screen.queryByPlaceholderText(/Guide the orchestrator/)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Shape the final synthesis/)).not.toBeInTheDocument();
   });
 
-  it("reveals the synthesis textarea when clicking the toggle", () => {
+  it("reveals the orchestrator focus textarea when clicking the toggle", () => {
     render(<BroadcastInput {...defaults} hasOrchestrator={true} />);
-    fireEvent.click(screen.getByText(/Synthesis instructions/));
-    expect(screen.getByPlaceholderText(/Guide the orchestrator/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/Orchestrator Focus/));
+    expect(screen.getByPlaceholderText(/Shape the final synthesis/)).toBeInTheDocument();
   });
 
   it("passes synthesisInstructions to onBroadcast when provided", () => {
     const onBroadcast = vi.fn();
     render(<BroadcastInput {...defaults} onBroadcast={onBroadcast} hasOrchestrator={true} />);
 
-    // Open synthesis panel
-    fireEvent.click(screen.getByText(/Synthesis instructions/));
+    fireEvent.click(screen.getByText(/Orchestrator Focus/));
 
     // Fill in both fields
     fireEvent.change(screen.getByPlaceholderText(/Send a prompt to all agents/), {
       target: { value: "Audit docs" },
     });
-    fireEvent.change(screen.getByPlaceholderText(/Guide the orchestrator/), {
+    fireEvent.change(screen.getByPlaceholderText(/Shape the final synthesis/), {
       target: { value: "Create parent issue" },
     });
 
@@ -113,11 +111,11 @@ describe("BroadcastInput", () => {
     expect(onBroadcast).toHaveBeenCalledWith("Audit docs", "Create parent issue", undefined);
   });
 
-  it("clears synthesis instructions after submitting", () => {
+  it("clears orchestrator focus after submitting", () => {
     render(<BroadcastInput {...defaults} hasOrchestrator={true} />);
-    fireEvent.click(screen.getByText(/Synthesis instructions/));
+    fireEvent.click(screen.getByText(/Orchestrator Focus/));
 
-    const synthArea = screen.getByPlaceholderText(/Guide the orchestrator/);
+    const synthArea = screen.getByPlaceholderText(/Shape the final synthesis/);
     fireEvent.change(synthArea, { target: { value: "Create parent issue" } });
     fireEvent.change(screen.getByPlaceholderText(/Send a prompt to all agents/), {
       target: { value: "Go" },

@@ -9,7 +9,7 @@ describe("MissionContext", () => {
 
   it("renders collapsed when value is empty", () => {
     render(<MissionContext value="" onChange={vi.fn()} />);
-    expect(screen.getByText("Add mission context…")).toBeInTheDocument();
+    expect(screen.getByText("Add session brief…")).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
@@ -29,9 +29,10 @@ describe("MissionContext", () => {
     expect(textarea).toHaveValue("Migrate auth to Clerk");
   });
 
-  it("shows the 'Mission Context' label when expanded", () => {
+  it("shows the 'Session Brief' label when expanded", () => {
     render(<MissionContext value="some context" onChange={vi.fn()} />);
-    expect(screen.getByText("Mission Context")).toBeInTheDocument();
+    expect(screen.getByText("Session Brief")).toBeInTheDocument();
+    expect(screen.getByText("All agents · Persistent")).toBeInTheDocument();
   });
 
   it("shows char count when value is non-empty and expanded", () => {
@@ -58,7 +59,7 @@ describe("MissionContext", () => {
   it("calls onChange('') when clear button is clicked", () => {
     const onChange = vi.fn();
     render(<MissionContext value="some context" onChange={onChange} />);
-    const clearBtn = screen.getByLabelText("Clear mission context");
+    const clearBtn = screen.getByLabelText("Clear session brief");
     fireEvent.click(clearBtn);
     expect(onChange).toHaveBeenCalledWith("");
   });
@@ -69,7 +70,7 @@ describe("MissionContext", () => {
     const onChange = vi.fn();
     render(<MissionContext value="some context" onChange={onChange} />);
     expect(screen.getByRole("textbox")).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Clear mission context"));
+    fireEvent.click(screen.getByLabelText("Clear session brief"));
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
@@ -80,7 +81,7 @@ describe("MissionContext", () => {
   it("expands when the collapsed bar is clicked", () => {
     render(<MissionContext value="" onChange={vi.fn()} />);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("Add mission context…"));
+    fireEvent.click(screen.getByText("Add session brief…"));
     expect(screen.getByRole("textbox")).toBeInTheDocument();
   });
 
@@ -89,11 +90,11 @@ describe("MissionContext", () => {
     render(<MissionContext value="" onChange={onChange} />);
 
     // Expand manually (value is still "")
-    fireEvent.click(screen.getByText("Add mission context…"));
+    fireEvent.click(screen.getByText("Add session brief…"));
     expect(screen.getByRole("textbox")).toBeInTheDocument();
 
     // Clear collapses and fires onChange("")
-    fireEvent.click(screen.getByLabelText("Clear mission context"));
+    fireEvent.click(screen.getByLabelText("Clear session brief"));
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(onChange).toHaveBeenCalledWith("");
   });

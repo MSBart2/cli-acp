@@ -11,7 +11,8 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { isValidGitUrl, repoNameFromUrl, extractWorkItems, buildDependencyGraph, getGraphRelationships, inferManifestRelationships, CHANGE_SIGNAL_WORDS } from "./helpers.js";
-import { saveSession, loadSession, listSessions, deleteSession, purgeOldSessions } from "./sessionStore.js";
+import { saveSession, loadSession, listSessions, deleteSession, purgeOldSessions, getRestorableAgents } from "./sessionStore.js";
+import { shutdownAgents } from "./sessionLifecycle.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -88,6 +89,7 @@ let currentSessionName = "default";
 
 /** Tracks the last repoBaseDir used in agent:create so session:load respawn can reuse it. */
 let currentRepoBaseDir = REPO_BASE_DIR;
+let currentReuseExisting = true;
 
 /** Global mission/context text prepended to every agent prompt when non-empty. */
 let globalMissionContext = "";
@@ -102,18 +104,24 @@ function saveCurrentSession() {
       console.log(`[session] Auto-named session: ${currentSessionName}`);
     }
   }
-  saveSession(currentSessionName, { agents, workItems, broadcastHistory });
+  saveSession(currentSessionName, {
+    agents,
+    workItems,
+    broadcastHistory,
+    repoBaseDir: currentRepoBaseDir,
+    reuseExisting: currentReuseExisting,
+  });
   purgeOldSessions();
 }
 
 /**
- * Returns a formatted mission context prefix to prepend to agent prompts.
- * Returns an empty string when no mission context has been set.
+ * Returns a formatted session brief prefix to prepend to agent prompts.
+ * Returns an empty string when no shared brief has been set.
  * @returns {string}
  */
 function buildMissionPrefix() {
   if (!globalMissionContext?.trim()) return "";
-  return `## Mission / Global Context\n${globalMissionContext.trim()}\n\n---\n\n`;
+  return `## Session Brief\n${globalMissionContext.trim()}\n\n---\n\n`;
 }
 
 /**
@@ -361,6 +369,7 @@ function buildAgentSnapshot(agentId, graph = null, statusOverride = null) {
     repoUrl: agent.repoUrl,
     repoName: agent.repoName,
     repoPath: agent.repoPath,
+    model: agent.model ?? null,
     role: agent.role,
     status: statusOverride ?? agent.status,
     manifest: agent.manifest,
@@ -646,6 +655,7 @@ async function createAgent(
   role = "worker",
   repoBaseDir,
   reuseExisting = false,
+  model = null,
   existingId = null,
 ) {
   // Enforce single-orchestrator rule
@@ -671,6 +681,7 @@ async function createAgent(
     agentId,
     repoUrl,
     repoName,
+    model,
     role,
     step: "cloning",
     message: reuseExisting
@@ -699,6 +710,7 @@ async function createAgent(
     agentId,
     repoUrl,
     repoName,
+    model,
     role,
     step: "starting",
     message: "Starting Copilot CLI…",
@@ -708,7 +720,11 @@ async function createAgent(
   let copilotProcess;
   try {
     // shell: true lets Windows resolve .cmd/.ps1 wrappers (e.g. copilot.cmd)
-    copilotProcess = spawn(COPILOT_CLI_PATH, ["--acp", "--stdio"], {
+    const copilotArgs = ["--acp", "--stdio"];
+    if (typeof model === "string" && model.trim()) {
+      copilotArgs.push("--model", model.trim());
+    }
+    copilotProcess = spawn(COPILOT_CLI_PATH, copilotArgs, {
       stdio: ["pipe", "pipe", "inherit"],
       shell: true,
     });
@@ -865,6 +881,7 @@ async function createAgent(
     repoPath,
     // Track whether we reused an existing folder so cleanup skips deletion
     repoReused,
+    model: model?.trim() || null,
     role,
     status: "initializing",
     permissionResolver: null,
@@ -907,6 +924,7 @@ async function createAgent(
       agentId,
       repoUrl,
       repoName,
+      model,
       role,
       step: "verifying",
       message: "Verifying agent is responsive…",
@@ -1010,13 +1028,13 @@ async function createAgent(
 
 io.on("connection", (socket) => {
   console.log(`[socket] Client connected: ${socket.id}`);
-  // Send current mission context to reconnecting clients
+  // Send the current session brief to reconnecting clients
   socket.emit("mission:updated", { text: globalMissionContext });
 
   // -- Create a new agent for a repo --
   socket.on(
     "agent:create",
-    async ({ repoUrl, role, repoBaseDir, reuseExisting }) => {
+    async ({ repoUrl, role, repoBaseDir, reuseExisting, model }) => {
       if (!repoUrl || typeof repoUrl !== "string") {
         socket.emit("agent:error", {
           agentId: null,
@@ -1036,12 +1054,14 @@ io.on("connection", (socket) => {
       );
       // Track the base dir so session:load respawn can reuse it
       if (repoBaseDir) currentRepoBaseDir = repoBaseDir;
+      currentReuseExisting = !!reuseExisting;
       await createAgent(
         socket,
         repoUrl,
         role || "worker",
         repoBaseDir,
         reuseExisting,
+        model,
       );
     },
   );
@@ -1328,6 +1348,7 @@ io.on("connection", (socket) => {
             .join("\n\n");
 
           const synthesisPrompt =
+            buildMissionPrefix() +
             `Here are the results from ${results.length} worker agents after a broadcast prompt.\n\n` +
             `**Original prompt:** "${activeBroadcastWave.promptText}"\n\n` +
             `${workerSummaries}\n\n` +
@@ -1337,10 +1358,10 @@ io.on("connection", (socket) => {
             `If any workers reported issue URLs, collect them into a table with columns: Repo, Issue, Title. ` +
             `If any workers reported PR URLs, collect them into a table with columns: Repo, PR, Status, Dependencies, Notes. ` +
             `Write your synthesis to a file in the operations/ directory of this repo.` +
-            // Append user-provided synthesis instructions so the orchestrator
-            // gets domain-specific guidance (e.g. "create a parent issue")
+            // Append user-provided orchestrator focus guidance so the
+            // synthesis can be shaped for this broadcast.
             (synthesisInstructions
-              ? `\n\n--- User synthesis instructions ---\n${synthesisInstructions}`
+              ? `\n\n--- User orchestrator focus ---\n${synthesisInstructions}`
               : "");
 
           console.log(
@@ -1446,7 +1467,7 @@ io.on("connection", (socket) => {
     console.log(`[session] Loading session: ${name} (mode: ${mode || "display"})`);
     
     // Stop all running agents
-    shutdownAll();
+    shutdownAll(socket, { persistSnapshot: true });
     
     // Clear maps
     agents.clear();
@@ -1455,12 +1476,23 @@ io.on("connection", (socket) => {
 
     const result = loadSession(name);
     if (!result.success) {
-      socket.emit("agent:error", { agentId: null, error: result.error });
+      socket.emit("session:error", { message: result.error });
       return;
     }
 
     currentSessionName = name;
     const { data } = result;
+    const restoredRepoBaseDir =
+      typeof data.settings?.repoBaseDir === "string" && data.settings.repoBaseDir.trim()
+        ? data.settings.repoBaseDir
+        : currentRepoBaseDir;
+    const restoredReuseExisting =
+      typeof data.settings?.reuseExisting === "boolean"
+        ? data.settings.reuseExisting
+        : currentReuseExisting;
+
+    currentRepoBaseDir = restoredRepoBaseDir;
+    currentReuseExisting = restoredReuseExisting;
 
     // Restore WorkItems
     if (Array.isArray(data.workItems)) {
@@ -1472,9 +1504,16 @@ io.on("connection", (socket) => {
       broadcastHistory.push(...data.broadcastHistory);
     }
 
-    // Restore Agents as stopped (display state), then optionally respawn
-    if (Array.isArray(data.agents)) {
-      for (const a of data.agents) {
+    // Restore Agents as stopped (display state), then optionally respawn.
+    // Older buggy autosaves could wipe the saved `agents` array on shutdown,
+    // so fall back to unique agent identities found in broadcast history.
+    const restoredAgents = getRestorableAgents(data);
+    if (restoredAgents.length > 0) {
+      if ((data.agents?.length ?? 0) === 0 && restoredAgents.some((a) => a.recoveredFromHistory)) {
+        console.warn(`[session] Recovered ${restoredAgents.length} agents for '${name}' from broadcast history`);
+      }
+
+      for (const a of restoredAgents) {
         agents.set(a.id, {
           process: null,
           connection: null,
@@ -1483,6 +1522,7 @@ io.on("connection", (socket) => {
           repoName: a.repoName,
           repoPath: a.repoPath,
           repoReused: a.repoReused,
+          model: a.model ?? null,
           role: a.role,
           status: "stopped",
           manifest: a.manifest,
@@ -1497,9 +1537,17 @@ io.on("connection", (socket) => {
 
       // Respawn mode: re-create each agent process using the previously-cloned repo
       if (mode === "respawn") {
-        for (const a of data.agents) {
+        for (const a of restoredAgents) {
           try {
-            await createAgent(socket, a.repoUrl, a.role, currentRepoBaseDir, true, a.id);
+            await createAgent(
+              socket,
+              a.repoUrl,
+              a.role,
+              currentRepoBaseDir,
+              a.repoReused || currentReuseExisting,
+              a.model ?? null,
+              a.id,
+            );
           } catch (err) {
             socket.emit("agent:error", { agentId: a.id, error: `Respawn failed: ${err.message}` });
           }
@@ -1509,7 +1557,13 @@ io.on("connection", (socket) => {
 
     socket.emit("workitems:updated", { items: [...workItems.values()] });
     socket.emit("broadcast:history", { history: broadcastHistory });
-    socket.emit("session:loaded", { name });
+    socket.emit("session:loaded", {
+      name,
+      settings: {
+        repoBaseDir: currentRepoBaseDir,
+        reuseExisting: currentReuseExisting,
+      },
+    });
   });
 
   // -- Restart an agent --
@@ -1527,7 +1581,15 @@ io.on("connection", (socket) => {
     console.log(`[agent:restart] Restarting ${agentId} (${agent.repoName})`);
     
     try {
-      await createAgent(socket, agent.repoUrl, agent.role, undefined, agent.repoReused, agentId);
+      await createAgent(
+        socket,
+        agent.repoUrl,
+        agent.role,
+        undefined,
+        agent.repoReused,
+        agent.model ?? null,
+        agentId,
+      );
     } catch (err) {
       socket.emit("agent:error", { agentId, error: err.message });
     }
@@ -1630,7 +1692,8 @@ Fill in the description, role, and techStack based on your knowledge of this rep
 // Cleanup helpers
 // ---------------------------------------------------------------------------
 
-function stopAgent(agentId) {
+function stopAgent(agentId, socket = null, options = {}) {
+  const { skipAutoSave = false } = options;
   const agent = agents.get(agentId);
   if (!agent) return;
 
@@ -1660,24 +1723,30 @@ function stopAgent(agentId) {
 
   agents.delete(agentId);
   console.log(`[agent:${agentId.slice(0, 8)}] Stopped and cleaned up`);
+  socket?.emit("agent:stopped", { agentId });
   
-  // Auto-save after stop
-  saveCurrentSession();
-}
-
-function shutdownAll() {
-  console.log("[shutdown] Cleaning up all agents…");
-  for (const agentId of agents.keys()) {
-    stopAgent(agentId);
+  if (!skipAutoSave) {
+    saveCurrentSession();
   }
 }
 
+function shutdownAll(socket = null, options = {}) {
+  console.log("[shutdown] Cleaning up all agents…");
+  shutdownAgents({
+    agents,
+    saveCurrentSession,
+    stopAgent,
+    socket,
+    persistSnapshot: options.persistSnapshot ?? false,
+  });
+}
+
 process.on("SIGINT", () => {
-  shutdownAll();
+  shutdownAll(null, { persistSnapshot: true });
   process.exit(0);
 });
 process.on("SIGTERM", () => {
-  shutdownAll();
+  shutdownAll(null, { persistSnapshot: true });
   process.exit(0);
 });
 

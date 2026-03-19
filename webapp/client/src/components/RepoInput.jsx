@@ -1,5 +1,6 @@
 import React, { useState, useRef } from "react";
 import { Rocket, Loader2, PlusCircle } from "lucide-react";
+import { COPILOT_MODEL_SUGGESTIONS } from "../copilotModels";
 
 /**
  * WorkerInput — rendered as a grid card so it sits flush alongside running worker cards.
@@ -7,6 +8,7 @@ import { Rocket, Loader2, PlusCircle } from "lucide-react";
  */
 export default function RepoInput({ onLaunch, connected }) {
   const [repoUrl, setRepoUrl] = useState("");
+  const [model, setModel] = useState("");
   const [loading, setLoading] = useState(false);
   const inputRef = useRef(null);
 
@@ -14,7 +16,7 @@ export default function RepoInput({ onLaunch, connected }) {
     e.preventDefault();
     if (!repoUrl.trim() || !connected) return;
     setLoading(true);
-    onLaunch(repoUrl.trim(), "worker");
+    onLaunch(repoUrl.trim(), "worker", model.trim() || undefined);
     setTimeout(() => {
       setLoading(false);
       setRepoUrl("");
@@ -49,6 +51,20 @@ export default function RepoInput({ onLaunch, connected }) {
             disabled={loading || !connected}
             className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-40 transition-all"
           />
+          <div className="space-y-1">
+            <label className="text-[11px] text-gray-500 uppercase tracking-wide">
+              Model
+            </label>
+            <input
+              list="copilot-model-suggestions"
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="Default model"
+              disabled={loading || !connected}
+              className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-40 transition-all"
+            />
+          </div>
           <button
             onClick={handleSubmit}
             disabled={!repoUrl.trim() || !connected || loading}
@@ -62,6 +78,11 @@ export default function RepoInput({ onLaunch, connected }) {
             Launch Worker
           </button>
         </div>
+        <datalist id="copilot-model-suggestions">
+          {COPILOT_MODEL_SUGGESTIONS.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
       </div>
     </div>
   );

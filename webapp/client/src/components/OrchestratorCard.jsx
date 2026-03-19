@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import { X, Send, Network, Loader2, ChevronDown, ChevronUp, RotateCw } from "lucide-react";
 
 /**
@@ -33,7 +33,6 @@ export default function OrchestratorCard({
 }) {
   const [input, setInput] = useState("");
   const [collapsed, setCollapsed] = useState(false);
-  const bottomRef = useRef(null);
   const status = statusConfig[agent.status] || statusConfig.initializing;
 
   const MAX_VISIBLE = 200;
@@ -42,12 +41,6 @@ export default function OrchestratorCard({
       ? agent.output.slice(-MAX_VISIBLE)
       : agent.output;
   const truncatedCount = agent.output.length - visibleOutput.length;
-
-  useEffect(() => {
-    if (typeof bottomRef.current?.scrollIntoView === "function") {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [agent.output]);
 
   const handleSend = () => {
     if (!input.trim() || agent.status === "busy" || agent.status === "initializing") return;
@@ -94,6 +87,9 @@ export default function OrchestratorCard({
                 {agent.repoPath}
               </p>
             )}
+            <p className="text-xs text-gray-600 truncate">
+              Model: {agent.model || "default"}
+            </p>
           </div>
 
           {/* Status badge + collapse toggle + stop */}
@@ -239,7 +235,6 @@ export default function OrchestratorCard({
                   )}
                 </div>
               ))}
-              <div ref={bottomRef} />
             </div>
           </div>
           </>

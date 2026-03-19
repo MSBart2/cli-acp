@@ -40,10 +40,49 @@ const SOCKET_EVENTS = [
 
 describe("useNotifications", () => {
   let socket;
+  let audioContextState;
+  let oscillatorInstances;
+  let requestPermission;
 
   beforeEach(() => {
     socket = makeMockSocket();
     vi.clearAllMocks();
+    localStorage.clear();
+
+    oscillatorInstances = [];
+    audioContextState = {
+      currentTime: 0,
+      state: "running",
+      destination: {},
+      resume: vi.fn().mockResolvedValue(undefined),
+      createOscillator: vi.fn(() => {
+        const oscillator = {
+          type: "sine",
+          frequency: { setValueAtTime: vi.fn() },
+          connect: vi.fn(),
+          start: vi.fn(),
+          stop: vi.fn(),
+        };
+        oscillatorInstances.push(oscillator);
+        return oscillator;
+      }),
+      createGain: vi.fn(() => ({
+        gain: {
+          setValueAtTime: vi.fn(),
+          exponentialRampToValueAtTime: vi.fn(),
+        },
+        connect: vi.fn(),
+      })),
+    };
+    function MockAudioContext() {
+      return audioContextState;
+    }
+    vi.stubGlobal("AudioContext", MockAudioContext);
+    requestPermission = vi.fn().mockResolvedValue("granted");
+    vi.stubGlobal("Notification", {
+      permission: "default",
+      requestPermission,
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -90,6 +129,15 @@ describe("useNotifications", () => {
     expect(message).not.toContain(longError);
   });
 
+  it("agent:error plays the error alert sound", async () => {
+    renderHook(() => useNotifications(socket));
+    await act(async () =>
+      socket._emit("agent:error", { repoName: "my-repo", error: "Something broke" })
+    );
+    expect(audioContextState.createOscillator).toHaveBeenCalledTimes(2);
+    expect(oscillatorInstances[0].start).toHaveBeenCalled();
+  });
+
   // ---------------------------------------------------------------------------
   // agent:prompt_all_complete
   // ---------------------------------------------------------------------------
@@ -100,6 +148,12 @@ describe("useNotifications", () => {
     expect(toast.success).toHaveBeenCalledWith(
       expect.stringContaining("Broadcast complete")
     );
+  });
+
+  it("agent:prompt_all_complete plays the completion alert sound", async () => {
+    renderHook(() => useNotifications(socket));
+    await act(async () => socket._emit("agent:prompt_all_complete", {}));
+    expect(audioContextState.createOscillator).toHaveBeenCalledTimes(2);
   });
 
   // ---------------------------------------------------------------------------
@@ -118,6 +172,12 @@ describe("useNotifications", () => {
     );
     expect(toast.success).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("agent:permission_request plays the permission alert sound", async () => {
+    renderHook(() => useNotifications(socket));
+    await act(async () => socket._emit("agent:permission_request", { repoName: "r" }));
+    expect(audioContextState.createOscillator).toHaveBeenCalledTimes(2);
   });
 
   // ---------------------------------------------------------------------------
@@ -155,6 +215,12 @@ describe("useNotifications", () => {
     );
   });
 
+  it("session:loaded plays the completion alert sound", async () => {
+    renderHook(() => useNotifications(socket));
+    await act(async () => socket._emit("session:loaded", {}));
+    expect(audioContextState.createOscillator).toHaveBeenCalledTimes(2);
+  });
+
   // ---------------------------------------------------------------------------
   // session:error
   // ---------------------------------------------------------------------------
@@ -167,6 +233,12 @@ describe("useNotifications", () => {
     expect(toast.error).toHaveBeenCalledWith(
       expect.stringContaining("load failed")
     );
+  });
+
+  it("session:error plays the error alert sound", async () => {
+    renderHook(() => useNotifications(socket));
+    await act(async () => socket._emit("session:error", { message: "load failed" }));
+    expect(audioContextState.createOscillator).toHaveBeenCalledTimes(2);
   });
 
   // ---------------------------------------------------------------------------
@@ -201,18 +273,12 @@ describe("useNotifications", () => {
   // requestBrowserPermission
   // ---------------------------------------------------------------------------
 
-  it("requestBrowserPermission calls Notification.requestPermission()", () => {
-    const requestPermission = vi.fn().mockResolvedValue("granted");
-    vi.stubGlobal("Notification", {
-      permission: "default",
-      requestPermission,
-    });
-
+  it("requestBrowserPermission calls Notification.requestPermission()", async () => {
     const { result } = renderHook(() => useNotifications(socket));
-    act(() => result.current.requestBrowserPermission());
+    await act(async () => {
+      await result.current.requestBrowserPermission();
+    });
     expect(requestPermission).toHaveBeenCalled();
-
-    vi.unstubAllGlobals();
   });
 
   // ---------------------------------------------------------------------------
@@ -224,8 +290,17 @@ describe("useNotifications", () => {
 
     const { result } = renderHook(() => useNotifications(socket));
     expect(result.current.browserPermission).toBe("granted");
+  });
 
-    vi.unstubAllGlobals();
+  it("toggleSoundEnabled updates the preference and suppresses sounds when muted", async () => {
+    const { result } = renderHook(() => useNotifications(socket));
+
+    act(() => result.current.toggleSoundEnabled());
+    expect(result.current.soundEnabled).toBe(false);
+    expect(localStorage.getItem("acp-alert-sounds-enabled")).toBe("false");
+
+    await act(async () => socket._emit("agent:prompt_all_complete", {}));
+    expect(audioContextState.createOscillator).not.toHaveBeenCalled();
   });
 
   // ---------------------------------------------------------------------------

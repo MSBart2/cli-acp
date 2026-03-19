@@ -1,8 +1,19 @@
 import React from "react";
-import { Terminal, FolderOpen, Bell, BellOff, BellRing } from "lucide-react";
+import { Terminal, FolderOpen, BellOff, BellRing, Volume2, VolumeX } from "lucide-react";
 import SessionControl from "./SessionControl";
 
-export default function Header({ connected, repoBaseDir, onRepoBashDirChange, reuseExisting, onReuseExistingChange, socket, browserPermission, onRequestBrowserPermission }) {
+export default function Header({
+  connected,
+  repoBaseDir,
+  onRepoBashDirChange,
+  reuseExisting,
+  onReuseExistingChange,
+  socket,
+  browserPermission,
+  onRequestBrowserPermission,
+  soundEnabled,
+  onToggleSoundEnabled,
+}) {
   return (
     <header className="border-b border-white/10 bg-white/[0.03] backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
@@ -78,6 +89,19 @@ export default function Header({ connected, repoBaseDir, onRepoBashDirChange, re
             <span className="hidden sm:inline">Alerts on</span>
           </div>
         )}
+
+        <button
+          onClick={onToggleSoundEnabled}
+          title={soundEnabled ? "Mute alert sounds" : "Enable alert sounds"}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all border ${
+            soundEnabled
+              ? "border-teal-500/20 text-teal-300 hover:bg-teal-500/10"
+              : "border-white/10 text-gray-400 hover:text-teal-300 hover:border-teal-500/30 hover:bg-teal-500/10"
+          }`}
+        >
+          {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+          <span className="hidden sm:inline">{soundEnabled ? "Sounds on" : "Sounds off"}</span>
+        </button>
 
         {/* Connection indicator */}
         <div className="flex items-center gap-2 text-sm shrink-0">

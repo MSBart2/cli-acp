@@ -313,7 +313,7 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
             </div>
           )}
 
-          {/* Collapsible synthesis instructions — only shown when an orchestrator exists */}
+          {/* Collapsible orchestrator focus — only shown when an orchestrator exists */}
           {hasOrchestrator && (
             <div>
               <button
@@ -327,14 +327,15 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
                   <ChevronRight className="w-3.5 h-3.5" />
                 )}
                 <Sparkles className="w-3.5 h-3.5" />
-                Synthesis instructions for orchestrator
+                Orchestrator Focus
+                <span className="text-[11px] text-gray-500">Orchestrator only &middot; This broadcast</span>
               </button>
 
               {showSynthesis && (
                 <textarea
                   value={synthesisInstructions}
                   onChange={(e) => setSynthesisInstructions(e.target.value)}
-                  placeholder="Guide the orchestrator — e.g. 'Create a parent issue that references each child issue URL…'"
+                  placeholder="Shape the final synthesis — e.g. 'Create a parent issue that references each child issue URL…'"
                   disabled={broadcasting}
                   rows={2}
                   className="mt-2 w-full bg-teal-950/40 border border-teal-500/30 rounded-lg px-4 py-3 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400/40 disabled:opacity-40 transition-all resize-none"

@@ -23,7 +23,7 @@ export default function MissionContext({ value, onChange }) {
           className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 transition-colors group w-full"
         >
           <Target className="w-4 h-4 text-purple-400/50 group-hover:text-purple-400 transition-colors" />
-          <span className="italic">Add mission context…</span>
+          <span className="italic">Add session brief…</span>
           <span className="ml-1 w-5 h-5 rounded flex items-center justify-center bg-white/5 border border-white/10 text-gray-400 group-hover:border-purple-500/40 group-hover:text-purple-300 transition-colors text-xs leading-none">
             +
           </span>
@@ -32,9 +32,14 @@ export default function MissionContext({ value, onChange }) {
         /* ── Expanded / active state ── */
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-purple-400/70 font-medium tracking-wide uppercase">
-              <Target className="w-3.5 h-3.5" />
-              Mission Context
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-xs text-purple-400/70 font-medium tracking-wide uppercase">
+                <Target className="w-3.5 h-3.5" />
+                Session Brief
+              </div>
+              <div className="text-[11px] text-gray-500">
+                All agents &middot; Persistent
+              </div>
             </div>
             <div className="flex items-center gap-3">
               {value.length > 0 && (
@@ -42,7 +47,7 @@ export default function MissionContext({ value, onChange }) {
               )}
               <button
                 onClick={handleClear}
-                aria-label="Clear mission context"
+                aria-label="Clear session brief"
                 className="w-5 h-5 rounded flex items-center justify-center text-gray-500 hover:text-gray-200 hover:bg-white/10 transition-colors text-sm leading-none"
               >
                 ×
@@ -52,7 +57,7 @@ export default function MissionContext({ value, onChange }) {
           <textarea
             autoFocus
             rows={3}
-            placeholder="e.g. We are migrating auth to Clerk. Use JWTs."
+            placeholder="e.g. We are migrating auth to Clerk. Prefer JWTs and call out rollout risks."
             value={value}
             onChange={(e) => onChange(e.target.value)}
             className="w-full resize-y bg-white/5 border border-purple-500/20 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-colors"

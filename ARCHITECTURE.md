@@ -52,8 +52,10 @@ cli-acp/
 ├── .github/
 │   └── copilot-instructions.md   # Copilot context for this repo
 ├── ARCHITECTURE.md               # ← You are here
-├── SCENARIO.md                   # Demo script: cross-repo doc audit
+├── SCENARIO.md                   # Scenario landing page / index
 ├── README.md                     # User-facing overview
+├── docs/
+│   └── scenarios/                # Focused single-scenario walkthroughs
 └── webapp/
     ├── package.json              # Root scripts: install:all, dev, build, prod
     ├── scripts/
@@ -103,6 +105,7 @@ The server maintains a `Map<agentId, AgentEntry>` where each entry contains:
 | `repoUrl`            | `string`                   | Original Git URL                               |
 | `repoName`           | `string`                   | Extracted repo name (used for display)         |
 | `repoPath`           | `string`                   | Local filesystem path to cloned repo           |
+| `model`              | `string \| null`           | Explicit Copilot model, or `null` for default |
 | `role`               | `"orchestrator"\|"worker"` | Determines UI treatment and broadcast behavior |
 | `status`             | `string`                   | `spawning`, `ready`, `busy`, `error`           |
 | `permissionResolver` | `Function \| null`         | Resolves pending permission request promise    |
@@ -117,16 +120,20 @@ The server maintains a `Map<agentId, AgentEntry>` where each entry contains:
 | Purpose          | Coordination, synthesis, PR tracking | Code changes in a single repo       |
 | Color theme      | Teal/cyan                            | Purple/blue                         |
 
+Both launcher panels also expose an optional model field. When populated, the
+server starts that agent with `copilot --acp --stdio --model <model>` and
+persists the choice so restored or restarted agents keep the same model.
+
 ### Broadcast Flow
 
 ```
-1. User enters prompt in BroadcastInput (optional: synthesis instructions)
+1. User enters a worker prompt in BroadcastInput (optional: orchestrator focus for this broadcast)
 2. Server fans out prompt to all READY workers (role === "worker")
 3. Each worker runs the prompt; streaming updates flow back
 4. When all workers complete, server coalesces results
 5. Coalesced output sent to:
    a) Frontend → BroadcastResults panel
-   b) Orchestrator agent (if present) → auto-prompted with synthesis context
+   b) Orchestrator agent (if present) → auto-prompted with the shared session brief plus any broadcast-specific orchestrator focus
 6. Orchestrator generates synthesis; updates flow back to OrchestratorCard
 ```
 

@@ -11,6 +11,92 @@ export function ensureSessionDir() {
   }
 }
 
+function inferOrchestratorRepoName(sessionName) {
+  const match = /^(.+)-\d{4}-\d{2}-\d{2}$/.exec(sessionName || "");
+  return match?.[1] ?? null;
+}
+
+function readOriginUrl(repoPath) {
+  const gitConfigPath = join(repoPath, ".git", "config");
+  if (!existsSync(gitConfigPath)) return null;
+
+  const configText = readFileSync(gitConfigPath, "utf-8");
+  const remoteOriginBlock =
+    /\[remote\s+"origin"\]([\s\S]*?)(?:\n\[|$)/i.exec(configText)?.[1] ?? "";
+  const urlMatch = /^\s*url\s*=\s*(.+)\s*$/im.exec(remoteOriginBlock);
+  return urlMatch?.[1]?.trim() ?? null;
+}
+
+function recoverOrchestratorAgent(data) {
+  const repoBaseDir = data?.settings?.repoBaseDir;
+  const repoName = inferOrchestratorRepoName(data?.name);
+  if (!repoBaseDir || !repoName) return null;
+
+  const repoPath = join(repoBaseDir, repoName);
+  if (!existsSync(repoPath)) return null;
+
+  const repoUrl = readOriginUrl(repoPath);
+  if (!repoUrl) return null;
+
+  return {
+    id: `recovered-orchestrator-${repoName.toLowerCase()}`,
+    repoUrl,
+    repoName,
+    repoPath,
+    repoReused: true,
+    model: null,
+    role: "orchestrator",
+    manifest: null,
+    manifestMissing: false,
+    recoveredFromHistory: true,
+  };
+}
+
+/**
+ * Returns the best available set of restorable agents for a saved session.
+ * Falls back to unique agent identities found in broadcast history when the
+ * saved `agents` array has already been wiped by an older buggy autosave path.
+ *
+ * @param {object} data
+ * @returns {Array<object>}
+ */
+export function getRestorableAgents(data) {
+  if (Array.isArray(data?.agents) && data.agents.length > 0) {
+    return data.agents;
+  }
+
+  const recovered = [];
+  const seen = new Set();
+
+  const recoveredOrchestrator = recoverOrchestratorAgent(data);
+  if (recoveredOrchestrator) {
+    recovered.push(recoveredOrchestrator);
+    seen.add(recoveredOrchestrator.id);
+  }
+
+  for (const entry of data?.broadcastHistory || []) {
+    for (const result of entry?.results || []) {
+      if (!result?.agentId || !result?.repoUrl || !result?.repoName) continue;
+      if (seen.has(result.agentId)) continue;
+      seen.add(result.agentId);
+      recovered.push({
+        id: result.agentId,
+        repoUrl: result.repoUrl,
+        repoName: result.repoName,
+        repoPath: null,
+        repoReused: true,
+        model: null,
+        role: "worker",
+        manifest: null,
+        manifestMissing: false,
+        recoveredFromHistory: true,
+      });
+    }
+  }
+
+  return recovered;
+}
+
 export function listSessions() {
   ensureSessionDir();
   try {
@@ -24,8 +110,9 @@ export function listSessions() {
       try {
         const raw = readFileSync(filePath, "utf-8");
         const data = JSON.parse(raw);
+        const restorableAgents = getRestorableAgents(data);
         summary = {
-          agentCount: Array.isArray(data.agents) ? data.agents.length : 0,
+          agentCount: restorableAgents.length,
           workItemCount: Array.isArray(data.workItems) ? data.workItems.length : 0,
           broadcastCount: Array.isArray(data.broadcastHistory) ? data.broadcastHistory.length : 0,
         };
@@ -68,12 +155,18 @@ export function saveSession(name, data) {
     name,
     createdAt,
     savedAt: new Date().toISOString(),
+    settings: {
+      repoBaseDir: data.repoBaseDir ?? null,
+      reuseExisting:
+        typeof data.reuseExisting === "boolean" ? data.reuseExisting : null,
+    },
     agents: Array.from(data.agents.entries()).map(([id, a]) => ({
       id,
       repoUrl: a.repoUrl,
       repoName: a.repoName,
       repoPath: a.repoPath,
       repoReused: a.repoReused,
+      model: a.model ?? null,
       role: a.role,
       manifest: a.manifest,
       manifestMissing: a.manifestMissing,

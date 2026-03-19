@@ -17,6 +17,7 @@ export function mergeAgentSnapshot(existing = {}, snapshot) {
     repoUrl: snapshot.repoUrl ?? existing.repoUrl,
     repoName: snapshot.repoName ?? existing.repoName,
     repoPath: snapshot.repoPath ?? existing.repoPath ?? null,
+    model: hasOwn(snapshot, "model") ? snapshot.model : (existing.model ?? null),
     role: snapshot.role ?? existing.role ?? "worker",
     status: snapshot.status ?? existing.status ?? "ready",
     spawnStep: hasOwn(snapshot, "spawnStep") ? snapshot.spawnStep : (existing.spawnStep ?? null),

@@ -38,7 +38,12 @@ export default function App() {
   const [routingPlan, setRoutingPlan] = useState(null);
 
   // Toast + browser notifications wired to socket events
-  const { requestBrowserPermission, browserPermission } = useNotifications(socket);
+  const {
+    requestBrowserPermission,
+    browserPermission,
+    soundEnabled,
+    toggleSoundEnabled,
+  } = useNotifications(socket);
 
   useEffect(() => {
     socket.on("connect", () => setConnected(true));
@@ -81,7 +86,6 @@ export default function App() {
     socket.on("agent:snapshot", (data) => {
       setAgents((prev) => {
         const existing = prev[data.agentId];
-        if (!existing) return prev;
         return {
           ...prev,
           [data.agentId]: mergeAgentSnapshot(existing, data),
@@ -266,6 +270,24 @@ export default function App() {
       setDepGraph((prev) => prev ? { ...prev, warnings: [...(prev.warnings || []), ...warnings] } : null);
     });
 
+    socket.on("session:loaded", ({ settings }) => {
+      if (typeof settings?.repoBaseDir === "string" && settings.repoBaseDir.trim()) {
+        setRepoBaseDir(settings.repoBaseDir);
+      }
+      if (typeof settings?.reuseExisting === "boolean") {
+        setReuseExisting(settings.reuseExisting);
+      }
+      // Session load restores cards, history, and work items separately.
+      // Clear transient panels that are not part of the saved snapshot.
+      setBroadcastResults(null);
+      setBroadcastProgress(null);
+      setRoutingPlan(null);
+      // Ask the server to re-emit the current graph-backed snapshots.
+      // This makes restore resilient even if the initial agent:created hydration
+      // wave was missed by the browser for any reason.
+      socket.emit("graph:list");
+    });
+
     socket.on("orchestrator:routing_plan", (data) => {
       setRoutingPlan(data);
     });
@@ -306,11 +328,18 @@ export default function App() {
       socket.off("orchestrator:routing_plan");
       socket.off("agent:impact_checking");
       socket.off("mission:updated");
+      socket.off("session:loaded");
     };
   }, []);
 
-  const handleLaunchAgent = useCallback((repoUrl, role = "worker") => {
-    socket.emit("agent:create", { repoUrl, role, repoBaseDir, reuseExisting });
+  const handleLaunchAgent = useCallback((repoUrl, role = "worker", model) => {
+    socket.emit("agent:create", {
+      repoUrl,
+      role,
+      repoBaseDir,
+      reuseExisting,
+      model,
+    });
   }, [repoBaseDir, reuseExisting]);
 
   const handleSendPrompt = useCallback((agentId, text) => {
@@ -405,6 +434,9 @@ export default function App() {
   const errorCount = workers.filter((a) => a.status === "error").length;
   const spawningCount = workers.filter((a) => ["spawning", "initializing"].includes(a.status)).length;
   const hasOrchestrator = Boolean(orchestrator);
+  const showWorkerSection =
+    workers.length > 0 ||
+    (orchestrator && !["spawning", "initializing"].includes(orchestrator.status));
 
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
@@ -439,6 +471,8 @@ export default function App() {
           socket={socket}
           browserPermission={browserPermission}
           onRequestBrowserPermission={requestBrowserPermission}
+          soundEnabled={soundEnabled}
+          onToggleSoundEnabled={toggleSoundEnabled}
         />
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -466,8 +500,8 @@ export default function App() {
             onCancel={handleCancelRoutingPlan}
           />
 
-          {/* ── Worker section — show once orchestrator is past initial setup ── */}
-          {orchestrator && !["spawning", "initializing"].includes(orchestrator.status) && (
+          {/* ── Worker section — available for restored worker-only sessions too ── */}
+          {showWorkerSection && (
             <div className="space-y-6">
               {/* Broadcast bar — only when there are workers to target */}
               {workers.length > 0 && (
@@ -485,7 +519,7 @@ export default function App() {
               )}
 
               {/* Worker grid — RepoInput always appears as the last card */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
                 {workers.map((agent) => (
                   <AgentCard
                     key={agent.agentId}
@@ -510,6 +544,15 @@ export default function App() {
               )}
             </div>
           )}
+
+          {showWorkTracker && (
+            <WorkItemTracker
+              items={workItems}
+              onDismiss={() => setShowWorkTracker(false)}
+            />
+          )}
+
+          <BroadcastHistory history={broadcastHistory} />
 
           {/* Empty state — no agents at all */}
           {agentList.length === 0 && (

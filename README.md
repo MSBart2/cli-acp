@@ -4,8 +4,8 @@ A beautiful web interface for orchestrating GitHub Copilot CLI agents across mul
 
 ## Highlights
 
-- **Launch orchestrator + worker agents** (one `copilot --acp --stdio` process per repo)
-- **Broadcast prompts** to all worker agents with optional synthesis instructions
+- **Launch orchestrator + worker agents** with optional per-repo model selection (one `copilot --acp --stdio` process per repo)
+- **Broadcast prompts** to all worker agents with optional orchestrator focus guidance
 - **Broadcast follow-up cascades** that can raise the same downstream routing-plan approval flow used by single-agent prompts
 - **Coalesced results panel** plus auto-forward to the orchestrator card
 - **Dependency-aware prompt context and cascades** driven by manifest relationships in either direction (`dependsOn` or `dependedBy`)
@@ -19,16 +19,23 @@ A beautiful web interface for orchestrating GitHub Copilot CLI agents across mul
 ![Multiple agents working simultaneously](https://github.com/user-attachments/assets/178093ff-603a-4827-b715-a3db978cf1cb)
 ![Coalesced broadcast results panel](https://github.com/user-attachments/assets/7b2a38bc-eb95-4ad3-be5d-86f8b9e07c2a)
 
-## Scenario spotlight: Cross-Repo Documentation Audit
+## Scenario spotlight
 
-The flagship scenario lives in [`SCENARIO.md`](./SCENARIO.md). It demonstrates how a **coordination repo** and an **orchestrator agent** can manage multi-repo work end-to-end:
+The scenario docs now live as a small set of focused walkthroughs under
+[`SCENARIO.md`](./SCENARIO.md), which acts as the landing page and scenario
+index.
 
-- **One orchestrator repo** (e.g. `myorg/cross-repo-ops`) stores durable coordination docs like `operations/2026-02-09-doc-audit/`.
-- **Four worker repos** (`api-gateway`, `billing-service`, `web-dashboard`, `infra-config`) run the actual audits and README updates.
-- **Broadcast workflow**: audit prompts → coalesced worker output → orchestrator synthesis → issue creation → README PRs → merge coordination.
-- **Success criteria**: orchestrator receives auto-forwarded synthesis results, writes coordination files, and tracks issue/PR links across repos.
+Recommended reading order:
 
-The scenario walkthrough includes prompt templates, a six-phase workflow, and the exact coordination artifacts the orchestrator writes—use it as the canonical demo script.
+1. [`01-first-broadcast-and-synthesis`](./docs/scenarios/01-first-broadcast-and-synthesis.md)
+2. [`02-documentation-audit-with-issues-and-prs`](./docs/scenarios/02-documentation-audit-with-issues-and-prs.md)
+3. [`03-dependency-aware-routing-and-cascades`](./docs/scenarios/03-dependency-aware-routing-and-cascades.md)
+4. [`04-loading-missing-dependency-workers`](./docs/scenarios/04-loading-missing-dependency-workers.md)
+5. [`05-saving-restoring-and-respawning-sessions`](./docs/scenarios/05-saving-restoring-and-respawning-sessions.md)
+
+The documentation audit remains the flagship end-to-end demo, but the new
+scenario set also covers dependency-aware routing, graph completion with
+`Load as Worker`, and the session restore vs. re-spawn workflow.
 
 ## Architecture
 
@@ -67,9 +74,9 @@ Then open [http://localhost:5173](http://localhost:5173).
 
 ## Usage
 
-1. **Launch an orchestrator** by entering the coordination repo URL and clicking **Orchestrator**.
-2. **Launch worker agents** for each target repo using the **Worker** button.
-3. **Broadcast a prompt** to workers; add synthesis instructions to guide the orchestrator’s follow-up.
+1. **Launch an orchestrator** by entering the coordination repo URL, optionally choosing a Copilot model, and clicking **Launch Orchestrator**.
+2. **Launch worker agents** for each target repo using **Add Worker**; each worker can use the default model or an explicitly selected model.
+3. **Broadcast a prompt** to workers; optionally add **Orchestrator Focus** to shape the final synthesis.
 4. **Track work with issues** by broadcasting an issue-creation prompt; the orchestrator captures the issue map.
 5. Review **coalesced results** and the orchestrator’s synthesized output.
 6. **Send targeted prompts**, approve permissions, and stop agents when finished.
@@ -91,6 +98,7 @@ Then open [http://localhost:5173](http://localhost:5173).
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
 | **Clone to**       | Local directory where repos are cloned. Takes precedence over the `REPO_BASE_DIR` environment variable — effectively replacing it for the session.                                                                                                                       | `C:\users\rmathis\source` |
 | **Reuse existing** | When checked, uses the repo name as the folder (no random suffix) and skips cloning if the folder already exists. The agent runs against your local working copy — uncommitted changes may be read or modified. Reused folders are **not** deleted when the agent stops. | unchecked                 |
+| **Per-launch model** | Each orchestrator or worker launch form includes an optional model field. Leave it blank to use the Copilot CLI default, or provide a specific model ID to pin that agent to a model. | blank / CLI default       |
 
 ---
 
@@ -102,7 +110,7 @@ Long-running multi-repo operations often span multiple sittings. The session sys
 
 Each session snapshot is a JSON file stored in `~/.acp-orchestrator/sessions/`. A snapshot captures:
 
-- **Agent roster** — repo URLs, names, local paths, roles (orchestrator vs worker), dependency manifests
+- **Agent roster** — repo URLs, names, local paths, roles (orchestrator vs worker), selected models, dependency manifests
 - **Work items** — every issue and PR URL detected from agent output
 - **Broadcast history** — the last 10 broadcast prompts and their per-worker results
 - **Settings** — the "Clone to" directory and "Reuse existing" flag
