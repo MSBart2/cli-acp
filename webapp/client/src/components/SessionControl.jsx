@@ -85,6 +85,7 @@ export default function SessionControl({ socket }) {
       {/* Current session trigger + auto-saved indicator */}
       <div className="flex items-center gap-2">
         <button
+          data-testid="session-trigger"
           onClick={() => { socket.emit("session:list"); setIsOpen((o) => !o); }}
           className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-md hover:bg-white/10 transition-colors text-xs text-gray-300"
         >
@@ -142,7 +143,7 @@ export default function SessionControl({ socket }) {
                 const confirming = pendingDelete === s.id;
                 const { agentCount = 0, workItemCount = 0, broadcastCount = 0 } = s.summary ?? {};
                 return (
-                  <div key={s.id} className="group/item flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded transition-colors">
+                  <div key={s.id} data-testid="session-item" className="group/item flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded transition-colors">
                     {/* Session name + metadata pills */}
                     <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
                       <span className="text-xs text-gray-300 truncate">{s.name}</span>
@@ -177,11 +178,10 @@ export default function SessionControl({ socket }) {
                       </button>
                       <button
                         onClick={() => handleDeleteClick(s)}
-                        className={`p-1 rounded transition-colors ${
-                          confirming
+                        className={`p-1 rounded transition-colors ${confirming
                             ? "bg-red-500/40 text-red-300 animate-pulse"
                             : "bg-red-500/10 text-red-400 hover:bg-red-500/30"
-                        }`}
+                          }`}
                         title={confirming ? "Click again to confirm delete" : "Delete session"}
                       >
                         <Trash2 className="w-3 h-3" />

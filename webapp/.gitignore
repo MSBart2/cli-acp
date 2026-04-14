@@ -1,2 +1,12 @@
 node_modules/
 client/dist/
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+
+# Local environment overrides — do not commit real values
+.env
+client/.env
+server/.env
+

@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import { io } from "socket.io-client";
 import { Terminal } from "lucide-react";
 import { Toaster } from "react-hot-toast";
@@ -26,7 +32,11 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResults, setBroadcastResults] = useState(null);
-  const [repoBaseDir, setRepoBaseDir] = useState("C:\\users\\rmathis\\source");
+  // Default to the env-var override, or empty string so the server uses its own
+  // OS-appropriate default (REPO_BASE_DIR, resolved to /tmp/acp-repos on Linux).
+  const [repoBaseDir, setRepoBaseDir] = useState(
+    import.meta.env.VITE_REPO_BASE_DIR ?? "",
+  );
   const [reuseExisting, setReuseExisting] = useState(true);
   const [broadcastProgress, setBroadcastProgress] = useState(null);
   const [workItems, setWorkItems] = useState([]);
@@ -112,17 +122,28 @@ export default function App() {
             };
             updated.output = merged;
           } else {
-            updated.output = [...agent.output, { type: "text", content: data.content }];
+            updated.output = [
+              ...agent.output,
+              { type: "text", content: data.content },
+            ];
           }
         } else if (data.type === "tool_call") {
           updated.output = [
             ...agent.output,
-            { type: "tool_call", name: data.content?.title, args: data.content?.status },
+            {
+              type: "tool_call",
+              name: data.content?.title,
+              args: data.content?.status,
+            },
           ];
         } else if (data.type === "tool_call_update") {
           updated.output = [
             ...agent.output,
-            { type: "tool_call", name: data.content?.toolCallId, args: data.content?.status },
+            {
+              type: "tool_call",
+              name: data.content?.toolCallId,
+              args: data.content?.status,
+            },
           ];
         } else if (data.type === "status") {
           updated.status = data.content;
@@ -167,10 +188,7 @@ export default function App() {
             [data.agentId]: {
               ...agent,
               status: "error",
-              output: [
-                ...agent.output,
-                { type: "error", content: data.error },
-              ],
+              output: [...agent.output, { type: "error", content: data.error }],
             },
           };
         });
@@ -228,9 +246,14 @@ export default function App() {
     socket.on("graph:updated", (graph) => {
       setDepGraph(graph);
       const unloadedByAgentId = Object.fromEntries(
-        (graph.unloadedDeps || []).map((entry) => [entry.agentId, entry.missing]),
+        (graph.unloadedDeps || []).map((entry) => [
+          entry.agentId,
+          entry.missing,
+        ]),
       );
-      const graphNodeIds = new Set((graph.nodes || []).map((node) => node.agentId));
+      const graphNodeIds = new Set(
+        (graph.nodes || []).map((node) => node.agentId),
+      );
       setUnloadedDeps(unloadedByAgentId);
       setAgents((prev) => {
         const next = { ...prev };
@@ -239,7 +262,9 @@ export default function App() {
           next[agentId] = {
             ...agent,
             unloadedDeps: unloadedByAgentId[agentId] ?? [],
-            manifestMissing: graphNodeIds.has(agentId) ? false : agent.manifestMissing,
+            manifestMissing: graphNodeIds.has(agentId)
+              ? false
+              : agent.manifestMissing,
           };
         }
         return next;
@@ -267,11 +292,18 @@ export default function App() {
 
     // Graph inconsistency warnings
     socket.on("graph:inconsistency", ({ warnings }) => {
-      setDepGraph((prev) => prev ? { ...prev, warnings: [...(prev.warnings || []), ...warnings] } : null);
+      setDepGraph((prev) =>
+        prev
+          ? { ...prev, warnings: [...(prev.warnings || []), ...warnings] }
+          : null,
+      );
     });
 
     socket.on("session:loaded", ({ settings }) => {
-      if (typeof settings?.repoBaseDir === "string" && settings.repoBaseDir.trim()) {
+      if (
+        typeof settings?.repoBaseDir === "string" &&
+        settings.repoBaseDir.trim()
+      ) {
         setRepoBaseDir(settings.repoBaseDir);
       }
       if (typeof settings?.reuseExisting === "boolean") {
@@ -332,15 +364,18 @@ export default function App() {
     };
   }, []);
 
-  const handleLaunchAgent = useCallback((repoUrl, role = "worker", model) => {
-    socket.emit("agent:create", {
-      repoUrl,
-      role,
-      repoBaseDir,
-      reuseExisting,
-      model,
-    });
-  }, [repoBaseDir, reuseExisting]);
+  const handleLaunchAgent = useCallback(
+    (repoUrl, role = "worker", model) => {
+      socket.emit("agent:create", {
+        repoUrl,
+        role,
+        repoBaseDir,
+        reuseExisting,
+        model,
+      });
+    },
+    [repoBaseDir, reuseExisting],
+  );
 
   const handleSendPrompt = useCallback((agentId, text) => {
     socket.emit("agent:prompt", { agentId, text });
@@ -372,9 +407,12 @@ export default function App() {
     socket.emit("orchestrator:create_manifest", { agentId });
   }, []);
 
-  const handleLoadWorker = useCallback((url) => {
-    if (url) handleLaunchAgent(url, "worker");
-  }, [handleLaunchAgent]);
+  const handleLoadWorker = useCallback(
+    (url) => {
+      if (url) handleLaunchAgent(url, "worker");
+    },
+    [handleLaunchAgent],
+  );
 
   const handleRefreshGraph = useCallback(() => {
     socket.emit("graph:list");
@@ -395,31 +433,36 @@ export default function App() {
     socket.emit("mission:set", { text });
   }, []);
 
-  /** Fan-out: send the same prompt to every ready agent at once, or only to @mentioned ones */  const handleBroadcastPrompt = useCallback((text, synthesisInstructions, targetRepoNames) => {
-    setBroadcasting(true);
-    // Clear previous results when a new broadcast starts
-    setBroadcastResults(null);
-    socket.emit("agent:prompt_all", { text, synthesisInstructions, targetRepoNames });
+  /** Fan-out: send the same prompt to every ready agent at once, or only to @mentioned ones */ const handleBroadcastPrompt =
+    useCallback((text, synthesisInstructions, targetRepoNames) => {
+      setBroadcasting(true);
+      // Clear previous results when a new broadcast starts
+      setBroadcastResults(null);
+      socket.emit("agent:prompt_all", {
+        text,
+        synthesisInstructions,
+        targetRepoNames,
+      });
 
-    // Optimistically mark targeted (or all, if no targeting) ready workers as busy
-    const targetSet = targetRepoNames?.length
-      ? new Set(targetRepoNames.map((n) => n.toLowerCase()))
-      : null;
-    setAgents((prev) => {
-      const next = { ...prev };
-      for (const id of Object.keys(next)) {
-        const a = next[id];
-        if (
-          a.status === "ready" &&
-          a.role !== "orchestrator" &&
-          (!targetSet || targetSet.has(a.repoName.toLowerCase()))
-        ) {
-          next[id] = { ...a, status: "busy" };
+      // Optimistically mark targeted (or all, if no targeting) ready workers as busy
+      const targetSet = targetRepoNames?.length
+        ? new Set(targetRepoNames.map((n) => n.toLowerCase()))
+        : null;
+      setAgents((prev) => {
+        const next = { ...prev };
+        for (const id of Object.keys(next)) {
+          const a = next[id];
+          if (
+            a.status === "ready" &&
+            a.role !== "orchestrator" &&
+            (!targetSet || targetSet.has(a.repoName.toLowerCase()))
+          ) {
+            next[id] = { ...a, status: "busy" };
+          }
         }
-      }
-      return next;
-    });
-  }, []);
+        return next;
+      });
+    }, []);
 
   const agentList = Object.values(agents);
   const orchestrator = agentList.find((a) => a.role === "orchestrator");
@@ -432,11 +475,14 @@ export default function App() {
   const readyCount = workers.filter((a) => a.status === "ready").length;
   const busyCount = workers.filter((a) => a.status === "busy").length;
   const errorCount = workers.filter((a) => a.status === "error").length;
-  const spawningCount = workers.filter((a) => ["spawning", "initializing"].includes(a.status)).length;
+  const spawningCount = workers.filter((a) =>
+    ["spawning", "initializing"].includes(a.status),
+  ).length;
   const hasOrchestrator = Boolean(orchestrator);
   const showWorkerSection =
     workers.length > 0 ||
-    (orchestrator && !["spawning", "initializing"].includes(orchestrator.status));
+    (orchestrator &&
+      !["spawning", "initializing"].includes(orchestrator.status));
 
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
@@ -452,7 +498,7 @@ export default function App() {
             fontSize: "0.8125rem",
           },
           success: { iconTheme: { primary: "#a78bfa", secondary: "#0f0f19" } },
-          error:   { iconTheme: { primary: "#f87171", secondary: "#0f0f19" } },
+          error: { iconTheme: { primary: "#f87171", secondary: "#0f0f19" } },
         }}
       />
       {/* Subtle radial glow behind the page content for depth */}
@@ -476,10 +522,16 @@ export default function App() {
         />
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-          <MissionContext value={missionContext} onChange={handleMissionChange} />
+          <MissionContext
+            value={missionContext}
+            onChange={handleMissionChange}
+          />
           {/* ── Orchestrator section ── always first */}
           {!orchestrator && (
-            <OrchestratorInput onLaunch={handleLaunchAgent} connected={connected} />
+            <OrchestratorInput
+              onLaunch={handleLaunchAgent}
+              connected={connected}
+            />
           )}
           {orchestrator && (
             <OrchestratorCard
@@ -560,8 +612,12 @@ export default function App() {
               <div className="inline-flex p-4 rounded-2xl bg-white/[0.03] border border-white/10 mb-5">
                 <Terminal className="w-8 h-8 text-purple-400/60" />
               </div>
-              <p className="text-lg text-gray-300 font-medium">No agents running</p>
-              <p className="text-sm text-gray-500 mt-1">Enter an orchestrator repo URL above to get started.</p>
+              <p className="text-lg text-gray-300 font-medium">
+                No agents running
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                Enter an orchestrator repo URL above to get started.
+              </p>
             </div>
           )}
         </main>

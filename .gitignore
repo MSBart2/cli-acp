@@ -1,3 +1,8 @@
 node_modules/
 dist/
 package-lock.json
+
+# Playwright test artifacts
+webapp/test-results/
+webapp/playwright-report/
+test-output-*.json

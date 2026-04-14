@@ -3,12 +3,48 @@ import { X, Send, Terminal, GitBranch, Loader2, RotateCw } from "lucide-react";
 import { suggestRepoUrl } from "../dependencySuggestions";
 
 const statusConfig = {
-  ready:        { label: "Ready",        dot: "bg-green-400",  text: "text-green-300",  pill: "bg-green-950/60 border-green-500/25",   pulse: false },
-  busy:         { label: "Busy",         dot: "bg-amber-400",  text: "text-amber-300",  pill: "bg-amber-950/60 border-amber-500/25",   pulse: true  },
-  error:        { label: "Error",        dot: "bg-red-400",    text: "text-red-300",    pill: "bg-red-950/60 border-red-500/25",       pulse: false },
-  initializing: { label: "Initializing", dot: "bg-blue-400",   text: "text-blue-300",   pill: "bg-blue-950/60 border-blue-500/25",     pulse: true  },
-  spawning:     { label: "Spawning",     dot: "bg-purple-400", text: "text-purple-300", pill: "bg-purple-950/60 border-purple-500/25",  pulse: true  },
-  stopped:      { label: "Stopped",      dot: "bg-gray-400",   text: "text-gray-300",   pill: "bg-gray-800/60 border-gray-600/25",      pulse: false },
+  ready: {
+    label: "Ready",
+    dot: "bg-green-400",
+    text: "text-green-300",
+    pill: "bg-green-950/60 border-green-500/25",
+    pulse: false,
+  },
+  busy: {
+    label: "Busy",
+    dot: "bg-amber-400",
+    text: "text-amber-300",
+    pill: "bg-amber-950/60 border-amber-500/25",
+    pulse: true,
+  },
+  error: {
+    label: "Error",
+    dot: "bg-red-400",
+    text: "text-red-300",
+    pill: "bg-red-950/60 border-red-500/25",
+    pulse: false,
+  },
+  initializing: {
+    label: "Initializing",
+    dot: "bg-blue-400",
+    text: "text-blue-300",
+    pill: "bg-blue-950/60 border-blue-500/25",
+    pulse: true,
+  },
+  spawning: {
+    label: "Spawning",
+    dot: "bg-purple-400",
+    text: "text-purple-300",
+    pill: "bg-purple-950/60 border-purple-500/25",
+    pulse: true,
+  },
+  stopped: {
+    label: "Stopped",
+    dot: "bg-gray-400",
+    text: "text-gray-300",
+    pill: "bg-gray-800/60 border-gray-600/25",
+    pulse: false,
+  },
 };
 
 function extractRepoName(url) {
@@ -20,7 +56,15 @@ function extractRepoName(url) {
   }
 }
 
-export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPermissionResponse, onCreateManifest, onLoadWorker }) {
+export default function AgentCard({
+  agent,
+  onSendPrompt,
+  onStop,
+  onRestart,
+  onPermissionResponse,
+  onCreateManifest,
+  onLoadWorker,
+}) {
   const [input, setInput] = useState("");
   const [unloadedOpen, setUnloadedOpen] = useState(false);
   const status = statusConfig[agent.status] || statusConfig.initializing;
@@ -31,7 +75,12 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
   const truncatedCount = agent.output.length - visibleOutput.length;
 
   const handleSend = () => {
-    if (!input.trim() || agent.status === "busy" || agent.status === "initializing") return;
+    if (
+      !input.trim() ||
+      agent.status === "busy" ||
+      agent.status === "initializing"
+    )
+      return;
     onSendPrompt(agent.agentId, input.trim());
     setInput("");
   };
@@ -60,7 +109,10 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
               </h3>
               <p className="text-xs text-gray-400 truncate">{agent.repoUrl}</p>
               {agent.repoPath && (
-                <p className="text-xs text-gray-500 truncate font-mono" title={agent.repoPath}>
+                <p
+                  className="text-xs text-gray-500 truncate font-mono"
+                  title={agent.repoPath}
+                >
                   {agent.repoPath}
                 </p>
               )}
@@ -70,12 +122,19 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
             </div>
           </div>
           <div className="flex items-center gap-2 ml-3 shrink-0">
-            <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium ${status.pill} ${status.text}`}>
+            <span
+              data-testid="agent-status"
+              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium ${status.pill} ${status.text}`}
+            >
               <span className="relative flex h-2 w-2">
                 {status.pulse && (
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-60`} />
+                  <span
+                    className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-60`}
+                  />
                 )}
-                <span className={`relative inline-flex h-2 w-2 rounded-full ${status.dot}`} />
+                <span
+                  className={`relative inline-flex h-2 w-2 rounded-full ${status.dot}`}
+                />
               </span>
               {status.label}
             </span>
@@ -105,39 +164,73 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
         </div>
 
         {/* Dependency pills, manifest chip, unloaded deps */}
-        {(agent.manifest?.dependsOn?.length > 0 || agent.manifest?.dependedBy?.length > 0 || agent.manifestMissing || agent.unloadedDeps?.length > 0) && (
+        {(agent.manifest?.dependsOn?.length > 0 ||
+          agent.manifest?.dependedBy?.length > 0 ||
+          agent.manifestMissing ||
+          agent.unloadedDeps?.length > 0) && (
           <div className="px-4 py-2 border-b border-white/10 flex flex-wrap items-center gap-2">
-            {agent.manifest?.dependsOn?.length > 0 && (<>
-              <span className="text-xs text-gray-500">uses:</span>
-              {agent.manifest.dependsOn.map((dep, i) => (
-                <span key={i} className="bg-teal-950/60 border border-teal-500/30 text-teal-300 text-xs px-2 py-0.5 rounded-full">{dep}</span>
-              ))}
-            </>)}
-            {agent.manifest?.dependedBy?.length > 0 && (<>
-              <span className="text-xs text-gray-500">used by:</span>
-              {agent.manifest.dependedBy.map((dep, i) => (
-                <span key={i} className="bg-gray-800/60 border border-gray-600/30 text-gray-400 text-xs px-2 py-0.5 rounded-full">{dep}</span>
-              ))}
-            </>)}
+            {agent.manifest?.dependsOn?.length > 0 && (
+              <>
+                <span className="text-xs text-gray-500">uses:</span>
+                {agent.manifest.dependsOn.map((dep, i) => (
+                  <span
+                    key={i}
+                    className="bg-teal-950/60 border border-teal-500/30 text-teal-300 text-xs px-2 py-0.5 rounded-full"
+                  >
+                    {dep}
+                  </span>
+                ))}
+              </>
+            )}
+            {agent.manifest?.dependedBy?.length > 0 && (
+              <>
+                <span className="text-xs text-gray-500">used by:</span>
+                {agent.manifest.dependedBy.map((dep, i) => (
+                  <span
+                    key={i}
+                    className="bg-gray-800/60 border border-gray-600/30 text-gray-400 text-xs px-2 py-0.5 rounded-full"
+                  >
+                    {dep}
+                  </span>
+                ))}
+              </>
+            )}
             {agent.manifestMissing && !agent.manifest && (
-              <button onClick={() => onCreateManifest?.(agent.agentId)} className="text-xs px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/30 text-amber-300 hover:bg-amber-900/60 transition-colors">
+              <button
+                onClick={() => onCreateManifest?.(agent.agentId)}
+                className="text-xs px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/30 text-amber-300 hover:bg-amber-900/60 transition-colors"
+              >
                 No manifest · Create?
               </button>
             )}
             {agent.unloadedDeps?.length > 0 && (
               <div className="flex flex-wrap items-center gap-1">
-                <button onClick={() => setUnloadedOpen((v) => !v)} className="text-xs px-2 py-0.5 rounded-full bg-blue-950/60 border border-blue-500/30 text-blue-300">
-                  {agent.unloadedDeps.length} dep{agent.unloadedDeps.length !== 1 ? "s" : ""} not loaded
+                <button
+                  onClick={() => setUnloadedOpen((v) => !v)}
+                  className="text-xs px-2 py-0.5 rounded-full bg-blue-950/60 border border-blue-500/30 text-blue-300"
+                >
+                  {agent.unloadedDeps.length} dep
+                  {agent.unloadedDeps.length !== 1 ? "s" : ""} not loaded
                 </button>
-                {unloadedOpen && agent.unloadedDeps.map((dep, i) => (
-                  <button key={i} onClick={() => {
-                    const suggestedUrl = dep.suggestedUrl || suggestRepoUrl(agent.repoUrl, dep.repoName);
-                    const url = prompt(`Repo URL for ${dep.repoName}`, suggestedUrl);
-                    if (url) onLoadWorker?.(url);
-                  }} className="text-xs px-2 py-0.5 rounded-full bg-blue-950/40 border border-blue-500/20 text-blue-300 hover:bg-blue-900/40 transition-colors">
-                    {dep.repoName} ({dep.direction}) · Load as Worker
-                  </button>
-                ))}
+                {unloadedOpen &&
+                  agent.unloadedDeps.map((dep, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        const suggestedUrl =
+                          dep.suggestedUrl ||
+                          suggestRepoUrl(agent.repoUrl, dep.repoName);
+                        const url = prompt(
+                          `Repo URL for ${dep.repoName}`,
+                          suggestedUrl,
+                        );
+                        if (url) onLoadWorker?.(url);
+                      }}
+                      className="text-xs px-2 py-0.5 rounded-full bg-blue-950/40 border border-blue-500/20 text-blue-300 hover:bg-blue-900/40 transition-colors"
+                    >
+                      {dep.repoName} ({dep.direction}) · Load as Worker
+                    </button>
+                  ))}
               </div>
             )}
           </div>
@@ -149,7 +242,9 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
           {agent.status === "spawning" && (
             <div className="flex flex-col items-center justify-center py-6 gap-3">
               <Loader2 className="w-6 h-6 text-purple-400 animate-spin" />
-              <p className="text-sm text-gray-300 font-medium">{agent.spawnMessage || "Starting…"}</p>
+              <p className="text-sm text-gray-300 font-medium">
+                {agent.spawnMessage || "Starting…"}
+              </p>
               <div className="flex items-center gap-2 mt-1">
                 {["cloning", "starting", "verifying"].map((step, i) => {
                   const steps = ["cloning", "starting", "verifying"];
@@ -158,13 +253,29 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
                   const isCurrent = i === currentIdx;
                   return (
                     <div key={step} className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full transition-colors ${
-                        isDone ? "bg-green-400" : isCurrent ? "bg-purple-400 animate-pulse" : "bg-gray-600"
-                      }`} />
-                      <span className={`text-xs capitalize ${
-                        isDone ? "text-green-400" : isCurrent ? "text-purple-300" : "text-gray-600"
-                      }`}>{step}</span>
-                      {i < 2 && <span className="text-gray-700 text-xs">→</span>}
+                      <div
+                        className={`w-2 h-2 rounded-full transition-colors ${
+                          isDone
+                            ? "bg-green-400"
+                            : isCurrent
+                              ? "bg-purple-400 animate-pulse"
+                              : "bg-gray-600"
+                        }`}
+                      />
+                      <span
+                        className={`text-xs capitalize ${
+                          isDone
+                            ? "text-green-400"
+                            : isCurrent
+                              ? "text-purple-300"
+                              : "text-gray-600"
+                        }`}
+                      >
+                        {step}
+                      </span>
+                      {i < 2 && (
+                        <span className="text-gray-700 text-xs">→</span>
+                      )}
                     </div>
                   );
                 })}
@@ -179,25 +290,36 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
           )}
           {truncatedCount > 0 && (
             <div className="text-center text-xs text-gray-600 py-1 border-b border-white/5 mb-2">
-              … {truncatedCount} earlier message{truncatedCount === 1 ? "" : "s"} hidden
+              … {truncatedCount} earlier message
+              {truncatedCount === 1 ? "" : "s"} hidden
             </div>
           )}
           {visibleOutput.map((entry, i) => {
             if (entry.type === "text") {
               return (
-                <div key={i} className="text-gray-200 whitespace-pre-wrap break-words">
+                <div
+                  key={i}
+                  className="text-gray-200 whitespace-pre-wrap break-words"
+                >
                   {entry.content}
                 </div>
               );
             }
             if (entry.type === "tool_call") {
               return (
-                <div key={i} className="text-teal-300 my-1.5 flex items-center gap-1">
+                <div
+                  key={i}
+                  className="text-teal-300 my-1.5 flex items-center gap-1"
+                >
                   <span>🔧 </span>
                   <span className="font-semibold">{entry.name}</span>
                   {entry.args && (
                     <span className="text-gray-400 ml-1 text-xs">
-                      ({typeof entry.args === "string" ? entry.args : JSON.stringify(entry.args)})
+                      (
+                      {typeof entry.args === "string"
+                        ? entry.args
+                        : JSON.stringify(entry.args)}
+                      )
                     </span>
                   )}
                 </div>
@@ -205,7 +327,10 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
             }
             if (entry.type === "error") {
               return (
-                <div key={i} className="text-red-300 my-1.5 flex items-center gap-1">
+                <div
+                  key={i}
+                  className="text-red-300 my-1.5 flex items-center gap-1"
+                >
                   <span>⚠</span> <span>{entry.content}</span>
                 </div>
               );
@@ -224,7 +349,9 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
               {agent.pendingPermission.options.map((option) => (
                 <button
                   key={option.optionId}
-                  onClick={() => onPermissionResponse(agent.agentId, option.optionId)}
+                  onClick={() =>
+                    onPermissionResponse(agent.agentId, option.optionId)
+                  }
                   className="px-3 py-1.5 text-xs font-medium rounded-md bg-amber-500/20 text-amber-100 hover:bg-amber-500/30 transition-colors border border-amber-400/30"
                 >
                   {option.name || option.optionId}
@@ -241,7 +368,9 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={canSend ? "Send a prompt…" : "Agent is " + agent.status + "…"}
+            placeholder={
+              canSend ? "Send a prompt…" : "Agent is " + agent.status + "…"
+            }
             disabled={!canSend}
             className="flex-1 bg-white/15 border border-white/25 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-40 transition-all"
           />

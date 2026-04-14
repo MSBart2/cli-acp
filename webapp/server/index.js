@@ -10,8 +10,23 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
-import { isValidGitUrl, repoNameFromUrl, extractWorkItems, buildDependencyGraph, getGraphRelationships, inferManifestRelationships, CHANGE_SIGNAL_WORDS } from "./helpers.js";
-import { saveSession, loadSession, listSessions, deleteSession, purgeOldSessions, getRestorableAgents } from "./sessionStore.js";
+import {
+  isValidGitUrl,
+  repoNameFromUrl,
+  extractWorkItems,
+  buildDependencyGraph,
+  getGraphRelationships,
+  inferManifestRelationships,
+  CHANGE_SIGNAL_WORDS,
+} from "./helpers.js";
+import {
+  saveSession,
+  loadSession,
+  listSessions,
+  deleteSession,
+  purgeOldSessions,
+  getRestorableAgents,
+} from "./sessionStore.js";
 import { shutdownAgents } from "./sessionLifecycle.js";
 
 // ---------------------------------------------------------------------------
@@ -45,6 +60,23 @@ const io = new Server(httpServer, {
 
 // Serve the built React client in production
 app.use(express.static(join(__dirname, "../client/dist")));
+
+// ---------------------------------------------------------------------------
+// Test-only reset endpoint — stops all agents so E2E tests start clean.
+// Not available in production (NODE_ENV=production).
+// ---------------------------------------------------------------------------
+if (process.env.NODE_ENV !== "production") {
+  app.post("/api/test/reset", (_req, res) => {
+    const ids = [...agents.keys()];
+    for (const agentId of ids) {
+      stopAgent(agentId, null, { skipAutoSave: true });
+      // Broadcast the stop to all connected browser clients
+      io.emit("agent:stopped", { agentId });
+    }
+    console.log(`[test/reset] Stopped ${ids.length} agent(s)`);
+    res.json({ stopped: ids.length });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Agent registry – one entry per spawned copilot process
@@ -97,7 +129,9 @@ let globalMissionContext = "";
 function saveCurrentSession() {
   // Auto-name from orchestrator repoName + date when still on the default name
   if (currentSessionName === "default") {
-    const orchestrator = [...agents.values()].find(a => a.role === "orchestrator");
+    const orchestrator = [...agents.values()].find(
+      (a) => a.role === "orchestrator",
+    );
     if (orchestrator?.repoName) {
       const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
       currentSessionName = `${orchestrator.repoName}-${date}`;
@@ -215,12 +249,18 @@ function buildCrossRepoContext(agentId) {
 
   const lines = ["## Cross-Repo Context (injected by ACP Orchestrator)"];
   if (upstream.length > 0) {
-    lines.push(`This repo depends on: ${upstream.join(", ")} (also loaded in this session).`);
+    lines.push(
+      `This repo depends on: ${upstream.join(", ")} (also loaded in this session).`,
+    );
   }
   if (downstream.length > 0) {
-    lines.push(`The following repos in this session depend on this repo: ${downstream.join(", ")}.`);
+    lines.push(
+      `The following repos in this session depend on this repo: ${downstream.join(", ")}.`,
+    );
   }
-  lines.push("Keep cross-repo compatibility in mind. If your changes affect public interfaces, flag them explicitly.");
+  lines.push(
+    "Keep cross-repo compatibility in mind. If your changes affect public interfaces, flag them explicitly.",
+  );
   return lines.join("\n") + "\n\n";
 }
 
@@ -235,7 +275,13 @@ function buildCrossRepoContext(agentId) {
  * @param {{ cascadeRunId?: string, forceCascade?: boolean } | null} options
  * @returns {Promise<boolean>}
  */
-async function runCascadeAnalysis(socket, agentId, originalPromptText, accumulatedOutput, options = null) {
+async function runCascadeAnalysis(
+  socket,
+  agentId,
+  originalPromptText,
+  accumulatedOutput,
+  options = null,
+) {
   const agent = agents.get(agentId);
   if (!agent) {
     return false;
@@ -250,15 +296,22 @@ async function runCascadeAnalysis(socket, agentId, originalPromptText, accumulat
     : null;
   const visitedRepoNames = cascadeRun?.visitedRepoNames ?? new Set();
   const { downstream } = getGraphRelationships(agents, agentId);
-  const filteredDownstream = downstream
-    .filter((repoName) => !visitedRepoNames.has(repoName.toLowerCase()));
+  const filteredDownstream = downstream.filter(
+    (repoName) => !visitedRepoNames.has(repoName.toLowerCase()),
+  );
 
-  if (!(options?.forceCascade || hasSignal) || filteredDownstream.length === 0) {
+  if (
+    !(options?.forceCascade || hasSignal) ||
+    filteredDownstream.length === 0
+  ) {
     return false;
   }
 
   const orchestratorEntry = [...agents.entries()].find(
-    ([, candidate]) => candidate.role === "orchestrator" && candidate.sessionId && candidate.status === "ready",
+    ([, candidate]) =>
+      candidate.role === "orchestrator" &&
+      candidate.sessionId &&
+      candidate.status === "ready",
   );
   if (!orchestratorEntry) {
     return false;
@@ -274,21 +327,29 @@ async function runCascadeAnalysis(socket, agentId, originalPromptText, accumulat
     `3. If no downstream impact, reply: NO_CASCADE\n\n` +
     `Worker output:\n${accumulatedOutput}`;
 
-  socket.emit("agent:impact_checking", { downstreamRepoNames: filteredDownstream, checking: true });
+  socket.emit("agent:impact_checking", {
+    downstreamRepoNames: filteredDownstream,
+    checking: true,
+  });
 
   orchestrator.status = "busy";
   orchestrator.lastPromptOutput = [];
-  socket.emit("agent:update", { agentId: orchestratorId, type: "status", content: "busy" });
+  socket.emit("agent:update", {
+    agentId: orchestratorId,
+    type: "status",
+    content: "busy",
+  });
 
   try {
-    const { promise: cascadePromise, heartbeat: cascadeHeartbeat } = withActivityTimeout(
-      orchestrator.connection.prompt({
-        sessionId: orchestrator.sessionId,
-        prompt: [{ type: "text", text: cascadePrompt }],
-      }),
-      PROMPT_INACTIVITY_TIMEOUT_MS,
-      "Cascade check stalled",
-    );
+    const { promise: cascadePromise, heartbeat: cascadeHeartbeat } =
+      withActivityTimeout(
+        orchestrator.connection.prompt({
+          sessionId: orchestrator.sessionId,
+          prompt: [{ type: "text", text: cascadePrompt }],
+        }),
+        PROMPT_INACTIVITY_TIMEOUT_MS,
+        "Cascade check stalled",
+      );
     orchestrator.heartbeat = cascadeHeartbeat;
 
     await cascadePromise;
@@ -297,8 +358,15 @@ async function runCascadeAnalysis(socket, agentId, originalPromptText, accumulat
     const parsedRoutes = parseRoutingPlan(routingText);
 
     orchestrator.status = "ready";
-    socket.emit("agent:update", { agentId: orchestratorId, type: "status", content: "ready" });
-    socket.emit("agent:impact_checking", { downstreamRepoNames: filteredDownstream, checking: false });
+    socket.emit("agent:update", {
+      agentId: orchestratorId,
+      type: "status",
+      content: "ready",
+    });
+    socket.emit("agent:impact_checking", {
+      downstreamRepoNames: filteredDownstream,
+      checking: false,
+    });
 
     if (!parsedRoutes) {
       return false;
@@ -333,14 +401,23 @@ async function runCascadeAnalysis(socket, agentId, originalPromptText, accumulat
     socket.emit("orchestrator:routing_plan", routingPlan);
     return true;
   } catch (err) {
-    console.error(`[cascade] Orchestrator cascade check failed: ${err.message}`);
+    console.error(
+      `[cascade] Orchestrator cascade check failed: ${err.message}`,
+    );
     orchestrator.status = "error";
-    socket.emit("agent:update", { agentId: orchestratorId, type: "status", content: "error" });
+    socket.emit("agent:update", {
+      agentId: orchestratorId,
+      type: "status",
+      content: "error",
+    });
     socket.emit("agent:error", {
       agentId: orchestratorId,
       error: `Cascade check failed: ${err.message}`,
     });
-    socket.emit("agent:impact_checking", { downstreamRepoNames: filteredDownstream, checking: false });
+    socket.emit("agent:impact_checking", {
+      downstreamRepoNames: filteredDownstream,
+      checking: false,
+    });
     return false;
   } finally {
     orchestrator.heartbeat = null;
@@ -362,7 +439,8 @@ function buildAgentSnapshot(agentId, graph = null, statusOverride = null) {
   if (!agent) return null;
 
   const unloadedDeps =
-    graph?.unloadedDeps?.find((entry) => entry.agentId === agentId)?.missing ?? [];
+    graph?.unloadedDeps?.find((entry) => entry.agentId === agentId)?.missing ??
+    [];
 
   return {
     agentId,
@@ -457,7 +535,12 @@ function emitDependencyGraphState(socket, graph) {
  * @param {string} eventName
  * @param {string|null} [statusOverride]
  */
-function emitAgentSnapshots(socket, graph, eventName = "agent:snapshot", statusOverride = null) {
+function emitAgentSnapshots(
+  socket,
+  graph,
+  eventName = "agent:snapshot",
+  statusOverride = null,
+) {
   for (const agentId of agents.keys()) {
     socket.emit(eventName, buildAgentSnapshot(agentId, graph, statusOverride));
   }
@@ -501,7 +584,10 @@ function cloneRepo(repoUrl, baseDir, reuseExisting = false) {
 
     let stderr = "";
     git.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
+      const line = chunk.toString().trim();
+      stderr += line;
+      // Forward clone progress so it's visible in server logs
+      if (line) console.log(`[clone] ${repoName}: ${line}`);
     });
 
     git.on("close", (code) => {
@@ -590,7 +676,8 @@ async function promptAgent(socket, agentId, text, options = null) {
   const originalPromptText = text;
   const missionPrefix = buildMissionPrefix();
   const crossRepoContext = buildCrossRepoContext(agentId);
-  const enrichedText = missionPrefix + (crossRepoContext ? crossRepoContext + text : text);
+  const enrichedText =
+    missionPrefix + (crossRepoContext ? crossRepoContext + text : text);
   agent.lastPromptOutput = [];
 
   const startTime = Date.now();
@@ -618,7 +705,13 @@ async function promptAgent(socket, agentId, text, options = null) {
     });
 
     const accumulatedOutput = (agent.lastPromptOutput || []).join("");
-    void runCascadeAnalysis(socket, agentId, originalPromptText, accumulatedOutput, options);
+    void runCascadeAnalysis(
+      socket,
+      agentId,
+      originalPromptText,
+      accumulatedOutput,
+      options,
+    );
 
     return true;
   } catch (err) {
@@ -661,7 +754,10 @@ async function createAgent(
   // Enforce single-orchestrator rule
   if (role === "orchestrator") {
     const existing = [...agents.values()].find(
-      (a) => a.role === "orchestrator" && a.agentId !== existingId && a.status !== "stopped",
+      (a) =>
+        a.role === "orchestrator" &&
+        a.agentId !== existingId &&
+        a.status !== "stopped",
     );
     if (existing) {
       socket.emit("agent:error", {
@@ -888,8 +984,8 @@ async function createAgent(
     // Heartbeat function set while a prompt is in-flight; called from
     // sessionUpdate to reset the inactivity timeout on each streaming update.
     heartbeat: null,
-    manifest: null,          // parsed acp-manifest.json, or null
-    manifestMissing: false,  // true when agent confirmed the file doesn't exist
+    manifest: null, // parsed acp-manifest.json, or null
+    manifestMissing: false, // true when agent confirmed the file doesn't exist
   });
 
   try {
@@ -959,36 +1055,63 @@ async function createAgent(
         try {
           const parsed = JSON.parse(responseText);
           agent.manifest = parsed;
-          console.log(`[agent:${agentId.slice(0, 8)}] Manifest loaded for ${agent.repoName}`);
+          console.log(
+            `[agent:${agentId.slice(0, 8)}] Manifest loaded for ${agent.repoName}`,
+          );
 
           // Cross-populate dependedBy on other agents whose repos are in this agent's dependsOn
           for (const depRepoName of parsed.dependsOn || []) {
-            const depEntry = [...agents.entries()].find(([, a]) => a.repoName === depRepoName);
+            const depEntry = [...agents.entries()].find(
+              ([, a]) => a.repoName === depRepoName,
+            );
             if (depEntry) {
               const [depAgentId, depAgent] = depEntry;
-              if (depAgent.connection && depAgent.sessionId && depAgent.status !== "busy") {
-                console.log(`[manifest:cross-pop] Prompting ${depRepoName} to add ${agent.repoName} to its dependedBy`);
-                depAgent.connection.prompt({
-                  sessionId: depAgent.sessionId,
-                  prompt: [{ type: "text", text: `In \`acp-manifest.json\` at the repo root, add "${agent.repoName}" to the \`dependedBy\` array if it is not already present. Keep all other fields unchanged. Do not explain, just make the edit.` }],
-                }).then(() => {
-                  refreshAgentManifestFromDisk(depAgentId);
-                  const refreshedGraph = buildDependencyGraph(agents);
-                  socket.emit("agent:snapshot", buildAgentSnapshot(depAgentId, refreshedGraph));
-                  emitDependencyGraphState(socket, refreshedGraph);
-                }).catch((err) => {
-                  console.warn(`[manifest:cross-pop] Failed to prompt ${depRepoName}: ${err.message}`);
-                });
+              if (
+                depAgent.connection &&
+                depAgent.sessionId &&
+                depAgent.status !== "busy"
+              ) {
+                console.log(
+                  `[manifest:cross-pop] Prompting ${depRepoName} to add ${agent.repoName} to its dependedBy`,
+                );
+                depAgent.connection
+                  .prompt({
+                    sessionId: depAgent.sessionId,
+                    prompt: [
+                      {
+                        type: "text",
+                        text: `In \`acp-manifest.json\` at the repo root, add "${agent.repoName}" to the \`dependedBy\` array if it is not already present. Keep all other fields unchanged. Do not explain, just make the edit.`,
+                      },
+                    ],
+                  })
+                  .then(() => {
+                    refreshAgentManifestFromDisk(depAgentId);
+                    const refreshedGraph = buildDependencyGraph(agents);
+                    socket.emit(
+                      "agent:snapshot",
+                      buildAgentSnapshot(depAgentId, refreshedGraph),
+                    );
+                    emitDependencyGraphState(socket, refreshedGraph);
+                  })
+                  .catch((err) => {
+                    console.warn(
+                      `[manifest:cross-pop] Failed to prompt ${depRepoName}: ${err.message}`,
+                    );
+                  });
               }
             }
           }
         } catch {
           agent.manifestMissing = true;
-          console.log(`[agent:${agentId.slice(0, 8)}] Manifest parse failed for ${agent.repoName} — marking missing`);
+          console.log(
+            `[agent:${agentId.slice(0, 8)}] Manifest parse failed for ${agent.repoName} — marking missing`,
+          );
         }
       } else if (responseText.startsWith("NO_MANIFEST:")) {
         agent.manifestMissing = true;
-        console.log(`[agent:${agentId.slice(0, 8)}] No manifest for ${agent.repoName}: ${responseText}`);
+        console.log(
+          `[agent:${agentId.slice(0, 8)}] No manifest for ${agent.repoName}: ${responseText}`,
+        );
       }
 
       refreshAgentManifestFromDisk(agentId);
@@ -1008,7 +1131,7 @@ async function createAgent(
     const graph = buildDependencyGraph(agents);
     socket.emit("agent:created", buildAgentSnapshot(agentId, graph, "ready"));
     emitDependencyGraphState(socket, graph);
-    
+
     // Auto-save on successful creation
     saveCurrentSession();
   } catch (err) {
@@ -1095,20 +1218,22 @@ io.on("connection", (socket) => {
   socket.on("orchestrator:approve_routing_plan", async ({ planId, routes }) => {
     const plan = pendingRoutingPlans.get(planId);
     if (!plan) {
-      socket.emit("agent:error", { agentId: null, error: "Routing plan not found" });
+      socket.emit("agent:error", {
+        agentId: null,
+        error: "Routing plan not found",
+      });
       return;
     }
 
     pendingRoutingPlans.delete(planId);
     const approvedRoutes =
       Array.isArray(routes) && routes.length > 0 ? routes : plan.routes;
-    const cascadeRun =
-      plan.cascadeRunId
-        ? cascadeRuns.get(plan.cascadeRunId) || {
-            runId: plan.cascadeRunId,
-            visitedRepoNames: new Set([plan.sourceRepoName.toLowerCase()]),
-          }
-        : null;
+    const cascadeRun = plan.cascadeRunId
+      ? cascadeRuns.get(plan.cascadeRunId) || {
+          runId: plan.cascadeRunId,
+          visitedRepoNames: new Set([plan.sourceRepoName.toLowerCase()]),
+        }
+      : null;
 
     if (cascadeRun) {
       cascadeRun.visitedRepoNames.add(plan.sourceRepoName.toLowerCase());
@@ -1239,7 +1364,8 @@ io.on("connection", (socket) => {
 
           const missionPrefix = buildMissionPrefix();
           const crossRepoCtx = buildCrossRepoContext(agentId);
-          const enrichedBroadcastText = missionPrefix + (crossRepoCtx ? crossRepoCtx + text : text);
+          const enrichedBroadcastText =
+            missionPrefix + (crossRepoCtx ? crossRepoCtx + text : text);
           const { promise: promptPromise, heartbeat } = withActivityTimeout(
             agent.connection.prompt({
               sessionId: agent.sessionId,
@@ -1435,13 +1561,11 @@ io.on("connection", (socket) => {
 
       // Notify the frontend the entire broadcast round is done
       socket.emit("agent:prompt_all_complete");
-      
+
       // Auto-save history
       saveCurrentSession();
     },
   );
-
-
 
   // -- Session Management --
   socket.on("session:list", () => {
@@ -1464,11 +1588,13 @@ io.on("connection", (socket) => {
   });
 
   socket.on("session:load", async ({ name, mode }) => {
-    console.log(`[session] Loading session: ${name} (mode: ${mode || "display"})`);
-    
+    console.log(
+      `[session] Loading session: ${name} (mode: ${mode || "display"})`,
+    );
+
     // Stop all running agents
     shutdownAll(socket, { persistSnapshot: true });
-    
+
     // Clear maps
     agents.clear();
     workItems.clear();
@@ -1483,7 +1609,8 @@ io.on("connection", (socket) => {
     currentSessionName = name;
     const { data } = result;
     const restoredRepoBaseDir =
-      typeof data.settings?.repoBaseDir === "string" && data.settings.repoBaseDir.trim()
+      typeof data.settings?.repoBaseDir === "string" &&
+      data.settings.repoBaseDir.trim()
         ? data.settings.repoBaseDir
         : currentRepoBaseDir;
     const restoredReuseExisting =
@@ -1496,9 +1623,9 @@ io.on("connection", (socket) => {
 
     // Restore WorkItems
     if (Array.isArray(data.workItems)) {
-      data.workItems.forEach(item => workItems.set(item.url, item));
+      data.workItems.forEach((item) => workItems.set(item.url, item));
     }
-    
+
     // Restore BroadcastHistory
     if (Array.isArray(data.broadcastHistory)) {
       broadcastHistory.push(...data.broadcastHistory);
@@ -1509,8 +1636,13 @@ io.on("connection", (socket) => {
     // so fall back to unique agent identities found in broadcast history.
     const restoredAgents = getRestorableAgents(data);
     if (restoredAgents.length > 0) {
-      if ((data.agents?.length ?? 0) === 0 && restoredAgents.some((a) => a.recoveredFromHistory)) {
-        console.warn(`[session] Recovered ${restoredAgents.length} agents for '${name}' from broadcast history`);
+      if (
+        (data.agents?.length ?? 0) === 0 &&
+        restoredAgents.some((a) => a.recoveredFromHistory)
+      ) {
+        console.warn(
+          `[session] Recovered ${restoredAgents.length} agents for '${name}' from broadcast history`,
+        );
       }
 
       for (const a of restoredAgents) {
@@ -1526,7 +1658,7 @@ io.on("connection", (socket) => {
           role: a.role,
           status: "stopped",
           manifest: a.manifest,
-          manifestMissing: a.manifestMissing
+          manifestMissing: a.manifestMissing,
         });
       }
 
@@ -1549,7 +1681,10 @@ io.on("connection", (socket) => {
               a.id,
             );
           } catch (err) {
-            socket.emit("agent:error", { agentId: a.id, error: `Respawn failed: ${err.message}` });
+            socket.emit("agent:error", {
+              agentId: a.id,
+              error: `Respawn failed: ${err.message}`,
+            });
           }
         }
       }
@@ -1579,7 +1714,7 @@ io.on("connection", (socket) => {
     }
 
     console.log(`[agent:restart] Restarting ${agentId} (${agent.repoName})`);
-    
+
     try {
       await createAgent(
         socket,
@@ -1603,7 +1738,9 @@ io.on("connection", (socket) => {
   // -- Mission / global context --
   socket.on("mission:set", ({ text }) => {
     globalMissionContext = typeof text === "string" ? text : "";
-    console.log(`[mission] Context updated (${globalMissionContext.length} chars)`);
+    console.log(
+      `[mission] Context updated (${globalMissionContext.length} chars)`,
+    );
     // Broadcast to ALL connected clients so every tab stays in sync
     io.emit("mission:updated", { text: globalMissionContext });
   });
@@ -1632,7 +1769,8 @@ io.on("connection", (socket) => {
     const dependsOnSeed = JSON.stringify(inferredRelationships.dependsOn);
     const dependedBySeed = JSON.stringify(inferredRelationships.dependedBy);
     const relationshipGuidance =
-      inferredRelationships.dependsOn.length > 0 || inferredRelationships.dependedBy.length > 0
+      inferredRelationships.dependsOn.length > 0 ||
+      inferredRelationships.dependedBy.length > 0
         ? `Use the following relationship seeds inferred from other loaded repos in this session unless the repo contents clearly contradict them:\n- dependsOn: ${dependsOnSeed}\n- dependedBy: ${dependedBySeed}`
         : "No dependency relationships could be inferred from the currently loaded repos, so leave the relationship arrays empty unless the repo contents clearly show otherwise.";
 
@@ -1667,13 +1805,21 @@ Fill in the description, role, and techStack based on your knowledge of this rep
         const graph = buildDependencyGraph(agents);
         socket.emit("agent:snapshot", buildAgentSnapshot(agentId, graph));
         emitDependencyGraphState(socket, graph);
-        socket.emit("agent:prompt_complete", { agentId, stopReason: "manifest_created" });
+        socket.emit("agent:prompt_complete", {
+          agentId,
+          stopReason: "manifest_created",
+        });
       })
       .catch((err) => {
         agent.status = "error";
-        socket.emit("agent:error", { agentId, error: `Manifest creation failed: ${err.message}` });
+        socket.emit("agent:error", {
+          agentId,
+          error: `Manifest creation failed: ${err.message}`,
+        });
       })
-      .finally(() => { agent.heartbeat = null; });
+      .finally(() => {
+        agent.heartbeat = null;
+      });
   });
 
   // -- Request current dependency graph --
@@ -1724,7 +1870,7 @@ function stopAgent(agentId, socket = null, options = {}) {
   agents.delete(agentId);
   console.log(`[agent:${agentId.slice(0, 8)}] Stopped and cleaned up`);
   socket?.emit("agent:stopped", { agentId });
-  
+
   if (!skipAutoSave) {
     saveCurrentSession();
   }

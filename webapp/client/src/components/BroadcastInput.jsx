@@ -62,8 +62,8 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
   // Suggestions filtered by the partial fragment the user has typed after @
   const suggestions = mention
     ? workerRepoNames.filter((n) =>
-        n.toLowerCase().startsWith(mention.fragment.toLowerCase())
-      )
+      n.toLowerCase().startsWith(mention.fragment.toLowerCase())
+    )
     : [];
 
   // Targeting pills derived from fully-typed @mentions in the text
@@ -156,38 +156,38 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
   const badge =
     errorCount > 0
       ? {
-          pill: "bg-red-950/60 border-red-500/25 text-red-300",
-          dot: "bg-red-400",
-          ping: false,
-          label: `${errorCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} errored`,
-        }
+        pill: "bg-red-950/60 border-red-500/25 text-red-300",
+        dot: "bg-red-400",
+        ping: false,
+        label: `${errorCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} errored`,
+      }
       : broadcasting || busyCount > 0
-      ? {
+        ? {
           pill: "bg-amber-950/60 border-amber-500/25 text-amber-300",
           dot: "bg-amber-400",
           ping: true,
           label: `${busyCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} busy`,
         }
-      : spawningCount > 0
-      ? {
-          pill: "bg-purple-950/60 border-purple-500/25 text-purple-300",
-          dot: "bg-purple-400",
-          ping: true,
-          label: `${spawningCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} spawning`,
-        }
-      : {
-          pill: "bg-emerald-950/60 border-emerald-500/25 text-emerald-300",
-          dot: "bg-emerald-400",
-          ping: readyCount > 0,
-          label: `${readyCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} ready`,
-        };
+        : spawningCount > 0
+          ? {
+            pill: "bg-purple-950/60 border-purple-500/25 text-purple-300",
+            dot: "bg-purple-400",
+            ping: true,
+            label: `${spawningCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} spawning`,
+          }
+          : {
+            pill: "bg-emerald-950/60 border-emerald-500/25 text-emerald-300",
+            dot: "bg-emerald-400",
+            ping: readyCount > 0,
+            label: `${readyCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} ready`,
+          };
 
   const sendLabel = isTargeted
     ? `Send to ${targetedRepos.length} worker${targetedRepos.length !== 1 ? "s" : ""}`
     : "Broadcast";
 
   return (
-    <div className="relative rounded-xl p-[1px] bg-gradient-to-r from-teal-500/40 via-blue-500/40 to-purple-500/40">
+    <div data-testid="broadcast-panel" className="relative rounded-xl p-[1px] bg-gradient-to-r from-teal-500/40 via-blue-500/40 to-purple-500/40">
       <div className="rounded-xl bg-white/[0.03] backdrop-blur-xl p-5">
         <div className="flex items-center gap-2 mb-3">
           <Radio className="w-4 h-4 text-teal-400" />
@@ -232,11 +232,10 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
                         e.preventDefault();
                         applySuggestion(name);
                       }}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm cursor-pointer transition-colors ${
-                        i === activeIdx
+                      className={`flex items-center gap-2 px-4 py-2 text-sm cursor-pointer transition-colors ${i === activeIdx
                           ? "bg-teal-500/20 text-teal-300"
                           : "text-gray-300 hover:bg-white/5"
-                      }`}
+                        }`}
                     >
                       <AtSign className="w-3.5 h-3.5 opacity-50" />
                       {name}
@@ -248,6 +247,7 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
 
             <button
               type="submit"
+              data-testid="broadcast-submit"
               disabled={!text.trim() || !canSend || (isTargeted && targetedRepos.length === 0)}
               className="self-end flex items-center gap-2 px-5 py-3 rounded-lg bg-gradient-to-r from-teal-600 to-blue-600 text-white font-medium hover:from-teal-500 hover:to-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
             >

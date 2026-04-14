@@ -1,5 +1,13 @@
 import React, { useState } from "react";
-import { X, Send, Network, Loader2, ChevronDown, ChevronUp, RotateCw } from "lucide-react";
+import {
+  X,
+  Send,
+  Network,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+  RotateCw,
+} from "lucide-react";
 
 /**
  * OrchestratorCard — a full-width, visually distinct card for the
@@ -12,12 +20,48 @@ import { X, Send, Network, Loader2, ChevronDown, ChevronUp, RotateCw } from "luc
  */
 
 const statusConfig = {
-  ready:       { label: "Ready",        dot: "bg-teal-400",   text: "text-teal-300",   pill: "bg-teal-950/60 border-teal-500/25",   pulse: false },
-  busy:        { label: "Synthesizing", dot: "bg-amber-400",  text: "text-amber-300",  pill: "bg-amber-950/60 border-amber-500/25",  pulse: true  },
-  error:       { label: "Error",        dot: "bg-red-400",    text: "text-red-300",    pill: "bg-red-950/60 border-red-500/25",      pulse: false },
-  initializing:{ label: "Initializing", dot: "bg-blue-400",   text: "text-blue-300",   pill: "bg-blue-950/60 border-blue-500/25",    pulse: true  },
-  spawning:    { label: "Spawning",     dot: "bg-purple-400", text: "text-purple-300", pill: "bg-purple-950/60 border-purple-500/25", pulse: true  },
-  stopped:     { label: "Stopped",      dot: "bg-gray-400",   text: "text-gray-300",   pill: "bg-gray-800/60 border-gray-600/25",      pulse: false },
+  ready: {
+    label: "Ready",
+    dot: "bg-teal-400",
+    text: "text-teal-300",
+    pill: "bg-teal-950/60 border-teal-500/25",
+    pulse: false,
+  },
+  busy: {
+    label: "Synthesizing",
+    dot: "bg-amber-400",
+    text: "text-amber-300",
+    pill: "bg-amber-950/60 border-amber-500/25",
+    pulse: true,
+  },
+  error: {
+    label: "Error",
+    dot: "bg-red-400",
+    text: "text-red-300",
+    pill: "bg-red-950/60 border-red-500/25",
+    pulse: false,
+  },
+  initializing: {
+    label: "Initializing",
+    dot: "bg-blue-400",
+    text: "text-blue-300",
+    pill: "bg-blue-950/60 border-blue-500/25",
+    pulse: true,
+  },
+  spawning: {
+    label: "Spawning",
+    dot: "bg-purple-400",
+    text: "text-purple-300",
+    pill: "bg-purple-950/60 border-purple-500/25",
+    pulse: true,
+  },
+  stopped: {
+    label: "Stopped",
+    dot: "bg-gray-400",
+    text: "text-gray-300",
+    pill: "bg-gray-800/60 border-gray-600/25",
+    pulse: false,
+  },
 };
 
 const spawnSteps = ["cloning", "starting", "verifying"];
@@ -43,7 +87,12 @@ export default function OrchestratorCard({
   const truncatedCount = agent.output.length - visibleOutput.length;
 
   const handleSend = () => {
-    if (!input.trim() || agent.status === "busy" || agent.status === "initializing") return;
+    if (
+      !input.trim() ||
+      agent.status === "busy" ||
+      agent.status === "initializing"
+    )
+      return;
     onSendPrompt(agent.agentId, input.trim());
     setInput("");
   };
@@ -83,7 +132,10 @@ export default function OrchestratorCard({
               {agent.repoName}
             </p>
             {agent.repoPath && (
-              <p className="text-xs text-gray-600 truncate font-mono" title={agent.repoPath}>
+              <p
+                className="text-xs text-gray-600 truncate font-mono"
+                title={agent.repoPath}
+              >
                 {agent.repoPath}
               </p>
             )}
@@ -93,13 +145,23 @@ export default function OrchestratorCard({
           </div>
 
           {/* Status badge + collapse toggle + stop */}
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${status.pill} ${status.text}`}>
+          <div
+            className="flex items-center gap-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              data-testid="orchestrator-status"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${status.pill} ${status.text}`}
+            >
               <span className="relative flex h-2 w-2">
                 {status.pulse && (
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-60`} />
+                  <span
+                    className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-60`}
+                  />
                 )}
-                <span className={`relative inline-flex h-2 w-2 rounded-full ${status.dot}`} />
+                <span
+                  className={`relative inline-flex h-2 w-2 rounded-full ${status.dot}`}
+                />
               </span>
               {status.label}
             </div>
@@ -108,10 +170,11 @@ export default function OrchestratorCard({
               className="p-1.5 rounded-md hover:bg-white/10 text-gray-500 hover:text-teal-400 transition-colors"
               title={collapsed ? "Expand" : "Collapse"}
             >
-              {collapsed
-                ? <ChevronDown className="w-4 h-4" />
-                : <ChevronUp className="w-4 h-4" />
-              }
+              {collapsed ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronUp className="w-4 h-4" />
+              )}
             </button>
             {agent.status === "stopped" ? (
               <button
@@ -178,10 +241,15 @@ export default function OrchestratorCard({
                 </p>
                 <div className="space-y-2">
                   {unloadedDependencies.map((dep) => (
-                    <div key={dep.repoName} className="flex flex-wrap items-center gap-2 text-xs">
+                    <div
+                      key={dep.repoName}
+                      className="flex flex-wrap items-center gap-2 text-xs"
+                    >
                       <span className="text-gray-300">
-                        <span className="font-medium text-blue-200">{dep.repoName}</span>
-                        {" "}referenced by {dep.referencedBy.join(", ")}
+                        <span className="font-medium text-blue-200">
+                          {dep.repoName}
+                        </span>{" "}
+                        referenced by {dep.referencedBy.join(", ")}
                       </span>
                       <button
                         onClick={() => onLoadWorker?.(dep.suggestedUrl)}
@@ -200,43 +268,43 @@ export default function OrchestratorCard({
               </div>
             )}
 
-          <div className="bg-[#0a0a10] rounded-lg border border-white/10 mb-4 max-h-64 overflow-y-auto">
-            <div className="p-4 space-y-1.5">
-              {truncatedCount > 0 && (
-                <p className="text-xs text-gray-600 italic">
-                  ({truncatedCount} earlier entries hidden)
-                </p>
-              )}
-              {visibleOutput.length === 0 && (
-                <p className="text-sm text-gray-600 italic">
-                  Waiting for broadcast results from workers…
-                </p>
-              )}
-              {visibleOutput.map((entry, idx) => (
-                <div key={idx}>
-                  {entry.type === "text" && (
-                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono leading-relaxed">
-                      {entry.content}
-                    </pre>
-                  )}
-                  {entry.type === "tool_call" && (
-                    <div className="text-xs text-cyan-400/80 font-mono flex items-center gap-1.5">
-                      <span className="text-cyan-500">⚡</span>
-                      {entry.name}
-                      {entry.args && (
-                        <span className="text-gray-500 ml-1">
-                          ({entry.args})
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {entry.type === "error" && (
-                    <p className="text-sm text-red-400">{entry.content}</p>
-                  )}
-                </div>
-              ))}
+            <div className="bg-[#0a0a10] rounded-lg border border-white/10 mb-4 max-h-64 overflow-y-auto">
+              <div className="p-4 space-y-1.5">
+                {truncatedCount > 0 && (
+                  <p className="text-xs text-gray-600 italic">
+                    ({truncatedCount} earlier entries hidden)
+                  </p>
+                )}
+                {visibleOutput.length === 0 && (
+                  <p className="text-sm text-gray-600 italic">
+                    Waiting for broadcast results from workers…
+                  </p>
+                )}
+                {visibleOutput.map((entry, idx) => (
+                  <div key={idx}>
+                    {entry.type === "text" && (
+                      <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono leading-relaxed">
+                        {entry.content}
+                      </pre>
+                    )}
+                    {entry.type === "tool_call" && (
+                      <div className="text-xs text-cyan-400/80 font-mono flex items-center gap-1.5">
+                        <span className="text-cyan-500">⚡</span>
+                        {entry.name}
+                        {entry.args && (
+                          <span className="text-gray-500 ml-1">
+                            ({entry.args})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {entry.type === "error" && (
+                      <p className="text-sm text-red-400">{entry.content}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
           </>
         )}
 
