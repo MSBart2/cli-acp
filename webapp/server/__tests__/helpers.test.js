@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isValidGitUrl, repoNameFromUrl, extractWorkItems, buildDependencyGraph, getGraphRelationships, inferManifestRelationships, parseRoutingPlan, buildMissionPrefix, buildCrossRepoContext, enrichPromptText, buildSynthesisPrompt } from "../helpers.js";
+import { isValidGitUrl, repoNameFromUrl, extractWorkItems, buildDependencyGraph, getGraphRelationships, inferManifestRelationships, parseRoutingPlan, buildMissionPrefix, buildCrossRepoContext, enrichPromptText, buildSynthesisPrompt, buildEventLogEntry } from "../helpers.js";
 
 // ---------------------------------------------------------------------------
 // isValidGitUrl
@@ -799,5 +799,71 @@ describe("buildSynthesisPrompt", () => {
   it("does not prepend mission prefix when missionContext is empty", () => {
     const result = buildSynthesisPrompt(baseResults, "Audit docs", null, "");
     expect(result).not.toContain("## Session Brief");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildEventLogEntry
+// ---------------------------------------------------------------------------
+
+describe("buildEventLogEntry", () => {
+  it("maps agent_message_chunk to type 'text' with content as the text string", () => {
+    const entry = buildEventLogEntry({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello world" } });
+    expect(entry.type).toBe("text");
+    expect(entry.content).toBe("hello world");
+    expect(entry.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("returns empty string content for agent_message_chunk without text", () => {
+    const entry = buildEventLogEntry({ sessionUpdate: "agent_message_chunk", content: { type: "image" } });
+    expect(entry.type).toBe("text");
+    expect(entry.content).toBe("");
+  });
+
+  it("maps tool_call to type 'tool_call' with toolCallId, title, status", () => {
+    const entry = buildEventLogEntry({ sessionUpdate: "tool_call", toolCallId: "tc-1", title: "Read file", status: "running" });
+    expect(entry.type).toBe("tool_call");
+    expect(entry.content).toEqual({ toolCallId: "tc-1", title: "Read file", status: "running" });
+  });
+
+  it("maps tool_call_update to type 'tool_call_update' with toolCallId and status", () => {
+    const entry = buildEventLogEntry({ sessionUpdate: "tool_call_update", toolCallId: "tc-1", status: "completed" });
+    expect(entry.type).toBe("tool_call_update");
+    expect(entry.content).toEqual({ toolCallId: "tc-1", status: "completed" });
+  });
+
+  it("maps plan to type 'plan' preserving the full update object as content", () => {
+    const update = { sessionUpdate: "plan", steps: ["step1", "step2"] };
+    const entry = buildEventLogEntry(update);
+    expect(entry.type).toBe("plan");
+    expect(entry.content).toBe(update);
+  });
+
+  it("maps agent_thought_chunk to type 'thought' preserving the full update object", () => {
+    const update = { sessionUpdate: "agent_thought_chunk", text: "thinking..." };
+    const entry = buildEventLogEntry(update);
+    expect(entry.type).toBe("thought");
+    expect(entry.content).toBe(update);
+  });
+
+  it("passes unknown sessionUpdate types through with their type name as-is", () => {
+    const update = { sessionUpdate: "future_event_type", data: "x" };
+    const entry = buildEventLogEntry(update);
+    expect(entry.type).toBe("future_event_type");
+    expect(entry.content).toBe(update);
+  });
+
+  it("falls back to 'unknown' type when sessionUpdate is undefined", () => {
+    const entry = buildEventLogEntry({ data: "bare" });
+    expect(entry.type).toBe("unknown");
+  });
+
+  it("always includes a timestamp in ISO 8601 format", () => {
+    const before = new Date();
+    const entry = buildEventLogEntry({ sessionUpdate: "tool_call", toolCallId: "x", title: "t", status: "s" });
+    const after = new Date();
+    const ts = new Date(entry.timestamp);
+    expect(ts.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(ts.getTime()).toBeLessThanOrEqual(after.getTime());
   });
 });

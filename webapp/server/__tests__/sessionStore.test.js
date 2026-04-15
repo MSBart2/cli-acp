@@ -147,6 +147,23 @@ describe("saveSession", () => {
     expect(saved.broadcastHistory).toHaveLength(1);
   });
 
+  it("serializes eventLog from agent entries", () => {
+    const events = [
+      { timestamp: "2026-01-01T00:00:00.000Z", type: "text", content: "hello" },
+      { timestamp: "2026-01-01T00:00:01.000Z", type: "tool_call", content: { toolCallId: "tc-1", title: "Read file", status: "running" } },
+    ];
+    saveSession("event-session", makeSessionData({ eventLog: events }));
+    const saved = JSON.parse(memFiles.get(join(SESSIONS_DIR, "event-session.json")).content);
+    expect(saved.agents[0].eventLog).toEqual(events);
+  });
+
+  it("defaults eventLog to empty array when agent entry has no eventLog", () => {
+    // makeSessionData does not set eventLog — simulates an agent without it
+    saveSession("no-log-session", makeSessionData());
+    const saved = JSON.parse(memFiles.get(join(SESSIONS_DIR, "no-log-session.json")).content);
+    expect(saved.agents[0].eventLog).toEqual([]);
+  });
+
   it("does not persist non-serializable agent fields", () => {
     const data = makeSessionData({
       process: { pid: 123 },

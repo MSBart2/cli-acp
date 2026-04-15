@@ -170,8 +170,8 @@ export function saveSession(name, data) {
       role: a.role,
       manifest: a.manifest,
       manifestMissing: a.manifestMissing,
-      // Server doesn't track agent output — placeholder for client-side tail
-      outputTail: [],
+      // Structured event log — all sessionUpdate events received during this session
+      eventLog: a.eventLog ?? [],
     })),
     workItems: Array.from(data.workItems.values()),
     broadcastHistory: data.broadcastHistory

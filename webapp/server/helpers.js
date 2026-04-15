@@ -437,3 +437,38 @@ export function buildSynthesisPrompt(results, promptText, synthesisInstructions,
       : "")
   );
 }
+
+/**
+ * Converts a raw ACP sessionUpdate object into a structured event log entry.
+ * The timestamp is generated at call time, capturing when the event was received.
+ * Called by createSessionUpdateHandler for every update type so each agent's
+ * eventLog is a complete, ordered, typed record of everything that happened.
+ *
+ * @param {object} update - The `params.update` object from a sessionUpdate callback
+ * @returns {{ timestamp: string, type: string, content: unknown }}
+ */
+export function buildEventLogEntry(update) {
+  const timestamp = new Date().toISOString();
+  switch (update.sessionUpdate) {
+    case "agent_message_chunk":
+      return { timestamp, type: "text", content: update.content?.text ?? "" };
+    case "tool_call":
+      return {
+        timestamp,
+        type: "tool_call",
+        content: { toolCallId: update.toolCallId, title: update.title, status: update.status },
+      };
+    case "tool_call_update":
+      return {
+        timestamp,
+        type: "tool_call_update",
+        content: { toolCallId: update.toolCallId, status: update.status },
+      };
+    case "plan":
+      return { timestamp, type: "plan", content: update };
+    case "agent_thought_chunk":
+      return { timestamp, type: "thought", content: update };
+    default:
+      return { timestamp, type: update.sessionUpdate ?? "unknown", content: update };
+  }
+}

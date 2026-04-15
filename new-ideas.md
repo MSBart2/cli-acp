@@ -46,8 +46,35 @@ Multi-agent orchestration, dependency-aware cascades, session save/restore, rout
 
 ---
 
-## Top picks by impact/effort ratio
+## Team additions (from planning discussion)
 
-1. **Diff viewer** — high visibility, can be read-only (call `git diff HEAD` per agent), would make every demo 10x more compelling
-2. **Saved playbooks** — moderate effort, huge daily-use value for repeat operators
-3. **Partial broadcast retry** — small targeted fix, eliminates a genuinely frustrating failure mode
+Items the team identified that aren't in the gaps above:
+
+- **Agent crash detection.** If the copilot process dies unexpectedly, the card stays stuck as "busy" with no recovery path. Listen to the child process `exit` event, emit `agent:error`, clean up the registry entry. Correctness fix, not a feature — and the "Restart" button is blocked until this exists.
+- **Disk cleanup visibility.** No UI shows how much tmpdir space cloned repos are consuming, and there's no emergency escape hatch. A small server endpoint + one line in the UI. Same code path as the diff viewer (touches `repoPath`).
+- **Card minimization.** Collapse a card to just its header + status badge. When you have 6 workers running the board is overwhelming. ~30 minutes of work, transforms layout immediately.
+- **Broadcast compose history.** Arrow-up to recall the previous broadcast prompt. One `useRef` + array. Trivially natural to anyone who uses a CLI.
+- **Output filtering per card.** Toggle pills on the output stream: All | Text | Tool calls | Plans. The data is already typed in `sessionUpdate` — just not surfaced.
+- **Mock ACP worker for tests.** A configurable stub `copilot --acp --stdio` process that can be set to succeed or fail on demand. Prerequisite for reliable e2e tests of partial broadcast recovery, disconnection handling, and restart behavior. Build once as shared infrastructure.
+
+### Deferred / cut
+
+Items reviewed and deprioritized:
+
+- **One-click rollback** — sounds safe, isn't. The cloned tmpdir is not the user's real repo. A safe rollback needs to push through the copilot process or execute `git push --force`. Not shipping silently. Needs a full trust-and-safety design pass before this is on the table.
+- **REST API / webhook triggers** — high value but requires an auth layer first. An unauthenticated POST endpoint that clones repos and spawns processes is an RCE surface. Localhost-only scoping would be a safe v1, but it's a week of real work. Defer until auth is designed.
+- **Shared live sessions** — significant architectural rework. Every `socketId` ownership assumption (including the disconnect cleanup for permission resolvers, which is a documented decision) breaks under multi-socket agent ownership. Needs the ownership model re-specced in decisions before any implementation starts.
+- **Natural language session builder** — clever demo, no daily leverage. Deferred.
+- **Multi-step DAG sequencer** — a product, not a feature. Hardest thing on the list to test reliably. Come back when two real use cases have a defined shape.
+
+---
+
+## Priority order (team consensus, April 2026)
+
+1. **Agent crash detection** — correctness fix; unblocks the restart button
+2. **Diff viewer** — trust-builder and demo-closer; same sprint as disk cleanup
+3. **Injected context visibility toggle** — ~40 lines total; immediate operator trust payoff
+4. **Disk cleanup visibility** — same `repoPath` code path as diff viewer; do together
+5. **Card minimize + broadcast compose history** — quick wins, layout and UX quality
+6. **Partial broadcast retry** — after mock ACP worker infrastructure is in place
+7. **Missing e2e coverage** — dependency cascade (no Playwright spec exists) + session restore failure client-side path

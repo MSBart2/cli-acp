@@ -23,6 +23,7 @@ import {
   buildCrossRepoContext,
   enrichPromptText,
   buildSynthesisPrompt,
+  buildEventLogEntry,
 } from "./helpers.js";
 import {
   saveSession,
@@ -83,11 +84,19 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
+// Returns the structured event log for a single agent — all sessionUpdate events
+// received during this session, in order, as { timestamp, type, content } objects.
+app.get("/api/agents/:agentId/events", (req, res) => {
+  const agent = agents.get(req.params.agentId);
+  if (!agent) return res.status(404).json({ error: "Agent not found" });
+  res.json({ agentId: req.params.agentId, events: agent.eventLog });
+});
+
 // ---------------------------------------------------------------------------
 // Agent registry – one entry per spawned copilot process
 // ---------------------------------------------------------------------------
 
-/** @type {Map<string, {process, connection, sessionId, repoUrl, repoName, repoPath, role, status, permissionResolver, socketId, pendingPermissionOptions}>} */
+/** @type {Map<string, {process, connection, sessionId, repoUrl, repoName, repoPath, role, status, permissionResolver, socketId, pendingPermissionOptions, eventLog: Array<{timestamp: string, type: string, content: unknown}>}>} */
 const agents = new Map();
 
 /**
@@ -625,6 +634,7 @@ async function promptAgent(socket, agentId, text, options = null) {
   const crossRepoContext = buildCrossRepoContext(agents, agentId);
   const enrichedText = enrichPromptText(text, missionPrefix, crossRepoContext);
   agent.lastPromptOutput = [];
+  agent.eventLog?.push({ timestamp: new Date().toISOString(), type: "prompt_start", content: { text: originalPromptText } });
 
   const startTime = Date.now();
   try {
@@ -649,6 +659,7 @@ async function promptAgent(socket, agentId, text, options = null) {
       agentId,
       stopReason: result.stopReason,
     });
+    agent.eventLog?.push({ timestamp: new Date().toISOString(), type: "prompt_complete", content: { stopReason: result.stopReason } });
 
     const accumulatedOutput = (agent.lastPromptOutput || []).join("");
     void runCascadeAnalysis(
@@ -670,6 +681,7 @@ async function promptAgent(socket, agentId, text, options = null) {
       agentId,
       error: `Prompt failed: ${err.message}`,
     });
+    agent.eventLog?.push({ timestamp: new Date().toISOString(), type: "prompt_error", content: { error: err.message } });
     return false;
   } finally {
     agent.heartbeat = null;
@@ -731,7 +743,8 @@ function createSessionUpdateHandler(socket, agentId, { agents, getActiveBroadcas
     // This is the core of the keepalive mechanism — as long as the agent
     // keeps streaming (text, tool calls, thoughts, plans) the deadline stays
     // pushed forward and the prompt will never be timed out mid-work.
-    agents.get(agentId)?.heartbeat?.();
+    const currentAgent = agents.get(agentId);
+    currentAgent?.heartbeat?.();
 
     const update = params.update;
     switch (update.sessionUpdate) {
@@ -747,7 +760,6 @@ function createSessionUpdateHandler(socket, agentId, { agents, getActiveBroadcas
           detectWorkItems(socket, agentId, update.content.text);
 
           // Accumulate text during manifest capture (startup verification)
-          const currentAgent = agents.get(agentId);
           if (currentAgent?.capturingManifest) {
             currentAgent.manifestText.push(update.content.text);
           }
@@ -764,6 +776,9 @@ function createSessionUpdateHandler(socket, agentId, { agents, getActiveBroadcas
               .get(agentId)
               .textChunks.push(update.content.text);
           }
+
+          // Append to the persistent structured event log for this agent
+          currentAgent?.eventLog?.push(buildEventLogEntry(update));
         }
         break;
 
@@ -777,6 +792,7 @@ function createSessionUpdateHandler(socket, agentId, { agents, getActiveBroadcas
             status: update.status,
           },
         });
+        currentAgent?.eventLog?.push(buildEventLogEntry(update));
         break;
 
       case "tool_call_update":
@@ -785,6 +801,7 @@ function createSessionUpdateHandler(socket, agentId, { agents, getActiveBroadcas
           type: "tool_call_update",
           content: { toolCallId: update.toolCallId, status: update.status },
         });
+        currentAgent?.eventLog?.push(buildEventLogEntry(update));
         break;
 
       case "plan":
@@ -793,6 +810,7 @@ function createSessionUpdateHandler(socket, agentId, { agents, getActiveBroadcas
           type: "plan",
           content: update,
         });
+        currentAgent?.eventLog?.push(buildEventLogEntry(update));
         break;
 
       case "agent_thought_chunk":
@@ -801,6 +819,7 @@ function createSessionUpdateHandler(socket, agentId, { agents, getActiveBroadcas
           type: "thought",
           content: update,
         });
+        currentAgent?.eventLog?.push(buildEventLogEntry(update));
         break;
 
       default:
@@ -1028,6 +1047,9 @@ async function createAgent(
     // Heartbeat function set while a prompt is in-flight; called from
     // sessionUpdate to reset the inactivity timeout on each streaming update.
     heartbeat: null,
+    // Ordered log of all ACP sessionUpdate events for this agent — { timestamp, type, content }.
+    // Grows throughout the session; persisted in session snapshots.
+    eventLog: [],
     manifest: null, // parsed acp-manifest.json, or null
     manifestMissing: false, // true when agent confirmed the file doesn't exist
   });
@@ -1138,6 +1160,23 @@ async function createAgent(
 
     // Auto-save on successful creation
     saveCurrentSession();
+
+    // Persistent crash watcher — active from this point forward.
+    // The earlyExitPromise above only races during init; once the agent is
+    // ready we need a separate listener so an unexpected process death
+    // doesn't leave a zombie "busy" card with no recovery path.
+    copilotProcess.once("close", (code) => {
+      const current = agents.get(agentId);
+      // Ignore if the agent was intentionally stopped or already cleaned up
+      if (!current || current.status === "stopped") return;
+
+      const msg = `Copilot process exited unexpectedly (code ${code ?? "null"})`;
+      console.error(`[agent:${agentId.slice(0, 8)}] ${msg}`);
+      current.status = "error";
+      current.eventLog?.push({ timestamp: new Date().toISOString(), type: "crash", content: { code } });
+      socket.emit("agent:error", { agentId, error: msg });
+      agents.delete(agentId);
+    });
   } catch (err) {
     console.error(`[agent:create] ACP init failed: ${err.message}`);
     copilotProcess.kill();
@@ -1467,6 +1506,7 @@ io.on("connection", (socket) => {
       const promises = readyAgents.map(async ([agentId, agent]) => {
         const startTime = Date.now();
         agent.lastPromptOutput = [];
+        agent.eventLog?.push({ timestamp: new Date().toISOString(), type: "prompt_start", content: { text } });
         try {
           console.log(
             `[agent:prompt_all] Starting ${agentId.slice(0, 8)} (${agent.repoName})`,
@@ -1499,6 +1539,7 @@ io.on("connection", (socket) => {
             agentId,
             stopReason: result.stopReason,
           });
+          agent.eventLog?.push({ timestamp: new Date().toISOString(), type: "prompt_complete", content: { stopReason: result.stopReason } });
 
           broadcastCascadeCandidates.push({
             agentId,
@@ -1517,6 +1558,7 @@ io.on("connection", (socket) => {
             agentId,
             error: `Prompt failed: ${err.message}`,
           });
+          agent.eventLog?.push({ timestamp: new Date().toISOString(), type: "prompt_error", content: { error: err.message } });
         } finally {
           agent.heartbeat = null;
           agent.lastPromptOutput = undefined;
