@@ -134,6 +134,17 @@ Fields produced by `mergeAgentSnapshot()`:
 
 ---
 
+### Session: 2026-04-14 — Extract StatusBadge and OutputLog shared components; replace prompt()
+
+- Created `components/StatusBadge.jsx` — pulsing status pill with `variant="worker"|"orchestrator"` prop; contains `STATUS_CONFIGS` for both card types. Accepts `testId` prop for `data-testid` pass-through.
+- Created `components/OutputLog.jsx` — renders text/tool_call/error entries; `variant` controls orchestrator vs worker styling differences (text size, icon, spacing).
+- `AgentCard.jsx`: removed 47-line `statusConfig` object, removed `const status = ...` line, swapped badge span → `<StatusBadge>`, swapped `visibleOutput.map` → `<OutputLog>`, replaced `window.prompt()` on unloaded deps with `loadingDepUrl` state + inline text input + "Load as Worker" button. No `prompt()` calls remain.
+- `OrchestratorCard.jsx`: same pattern — removed 47-line `statusConfig`, removed `const status = ...`, swapped badge `<div>` → `<StatusBadge>`, swapped `visibleOutput.map` loop → `<OutputLog>`.
+- `data-testid` contract preserved: `agent-status` passed as `testId` to `StatusBadge` in `AgentCard`, `orchestrator-status` in `OrchestratorCard`.
+- Pattern: shared UI primitives live in `components/` as named-export defaults; variant prop controls appearance rather than forking the component.
+
+---
+
 #### Components Exceeding 250-line Limit (⚠️ flag for extraction)
 
 | File | Lines | Extraction candidates |

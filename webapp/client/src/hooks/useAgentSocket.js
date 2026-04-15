@@ -29,11 +29,22 @@ export function useAgentSocket(socket, setters) {
   } = setters;
 
   useEffect(() => {
-    socket.on("connect", () => setConnected(true));
-    socket.on("disconnect", () => setConnected(false));
+    // Define all handlers as named consts so the cleanup can pass the exact
+    // same reference to socket.off — preventing over-removal in React Strict Mode.
+
+    // Merged connect handler: mark connected AND request server state
+    const onConnect = () => {
+      setConnected(true);
+      socket.emit("workitems:list");
+      socket.emit("broadcast:list_history");
+      socket.emit("graph:list");
+      socket.emit("mission:get");
+    };
+
+    const onDisconnect = () => setConnected(false);
 
     // Show a placeholder card immediately while the agent is being spawned
-    socket.on("agent:spawning", (data) => {
+    const onAgentSpawning = (data) => {
       setAgents((prev) => {
         const existing = prev[data.agentId];
         return {
@@ -49,10 +60,10 @@ export function useAgentSocket(socket, setters) {
           }),
         };
       });
-    });
+    };
 
     // Agent is fully ready — transition from spawning to ready
-    socket.on("agent:created", (data) => {
+    const onAgentCreated = (data) => {
       setAgents((prev) => {
         const existing = prev[data.agentId];
         return {
@@ -64,9 +75,9 @@ export function useAgentSocket(socket, setters) {
           }),
         };
       });
-    });
+    };
 
-    socket.on("agent:snapshot", (data) => {
+    const onAgentSnapshot = (data) => {
       setAgents((prev) => {
         const existing = prev[data.agentId];
         return {
@@ -74,9 +85,9 @@ export function useAgentSocket(socket, setters) {
           [data.agentId]: mergeAgentSnapshot(existing, data),
         };
       });
-    });
+    };
 
-    socket.on("agent:update", (data) => {
+    const onAgentUpdate = (data) => {
       setAgents((prev) => {
         const agent = prev[data.agentId];
         if (!agent) return prev;
@@ -124,17 +135,17 @@ export function useAgentSocket(socket, setters) {
 
         return { ...prev, [data.agentId]: updated };
       });
-    });
+    };
 
-    socket.on("agent:prompt_complete", (data) => {
+    const onAgentPromptComplete = (data) => {
       setAgents((prev) => {
         const agent = prev[data.agentId];
         if (!agent) return prev;
         return { ...prev, [data.agentId]: { ...agent, status: "ready" } };
       });
-    });
+    };
 
-    socket.on("agent:permission_request", (data) => {
+    const onAgentPermissionRequest = (data) => {
       setAgents((prev) => {
         const agent = prev[data.agentId];
         if (!agent) return prev;
@@ -149,9 +160,9 @@ export function useAgentSocket(socket, setters) {
           },
         };
       });
-    });
+    };
 
-    socket.on("agent:error", (data) => {
+    const onAgentError = (data) => {
       if (data.agentId) {
         setAgents((prev) => {
           const agent = prev[data.agentId];
@@ -166,57 +177,49 @@ export function useAgentSocket(socket, setters) {
           };
         });
       }
-    });
+    };
 
-    socket.on("agent:stopped", (data) => {
+    const onAgentStopped = (data) => {
       setAgents((prev) => {
         const next = { ...prev };
         delete next[data.agentId];
         return next;
       });
-    });
+    };
 
     // Broadcast wave finished — clear the broadcasting spinner and progress
-    socket.on("agent:prompt_all_complete", () => {
+    const onAgentPromptAllComplete = () => {
       setBroadcasting(false);
       setBroadcastProgress(null);
-    });
+    };
 
     // Coalesced results from a broadcast wave
-    socket.on("agent:broadcast_results", (data) => {
+    const onAgentBroadcastResults = (data) => {
       setBroadcastResults(data);
-    });
+    };
 
     // Per-agent broadcast progress (X of Y completed)
-    socket.on("agent:broadcast_progress", (data) => {
+    const onAgentBroadcastProgress = (data) => {
       setBroadcastProgress(data);
-    });
+    };
 
     // Work items (issues / PRs) detected from agent output
-    socket.on("workitems:updated", (data) => {
+    const onWorkitemsUpdated = (data) => {
       setWorkItems(data.items || []);
-    });
+    };
 
     // Broadcast history
-    socket.on("broadcast:history", (data) => {
+    const onBroadcastHistory = (data) => {
       setBroadcastHistory(data.history || []);
-    });
-
-    // Request existing state from the server on (re)connect
-    socket.on("connect", () => {
-      socket.emit("workitems:list");
-      socket.emit("broadcast:list_history");
-      socket.emit("graph:list");
-      socket.emit("mission:get");
-    });
+    };
 
     // Mission / global context sync
-    socket.on("mission:updated", ({ text }) => {
+    const onMissionUpdated = ({ text }) => {
       setMissionContext(text ?? "");
-    });
+    };
 
     // Dependency graph updated
-    socket.on("graph:updated", (graph) => {
+    const onGraphUpdated = (graph) => {
       setDepGraph(graph);
       const unloadedByAgentId = Object.fromEntries(
         (graph.unloadedDeps || []).map((entry) => [
@@ -242,37 +245,37 @@ export function useAgentSocket(socket, setters) {
         }
         return next;
       });
-    });
+    };
 
     // An agent confirmed its manifest is missing
-    socket.on("graph:manifest_missing", ({ agentId }) => {
+    const onGraphManifestMissing = ({ agentId }) => {
       setAgents((prev) => {
         const agent = prev[agentId];
         if (!agent) return prev;
         return { ...prev, [agentId]: { ...agent, manifestMissing: true } };
       });
-    });
+    };
 
     // Unloaded dep notification for an agent
-    socket.on("graph:unloaded_deps", ({ agentId, unloaded }) => {
+    const onGraphUnloadedDeps = ({ agentId, unloaded }) => {
       setUnloadedDeps((prev) => ({ ...prev, [agentId]: unloaded }));
       setAgents((prev) => {
         const agent = prev[agentId];
         if (!agent) return prev;
         return { ...prev, [agentId]: { ...agent, unloadedDeps: unloaded } };
       });
-    });
+    };
 
     // Graph inconsistency warnings
-    socket.on("graph:inconsistency", ({ warnings }) => {
+    const onGraphInconsistency = ({ warnings }) => {
       setDepGraph((prev) =>
         prev
           ? { ...prev, warnings: [...(prev.warnings || []), ...warnings] }
           : null,
       );
-    });
+    };
 
-    socket.on("session:loaded", ({ settings }) => {
+    const onSessionLoaded = ({ settings }) => {
       if (
         typeof settings?.repoBaseDir === "string" &&
         settings.repoBaseDir.trim()
@@ -291,14 +294,14 @@ export function useAgentSocket(socket, setters) {
       // This makes restore resilient even if the initial agent:created hydration
       // wave was missed by the browser for any reason.
       socket.emit("graph:list");
-    });
+    };
 
-    socket.on("orchestrator:routing_plan", (data) => {
+    const onOrchestratorRoutingPlan = (data) => {
       setRoutingPlan(data);
-    });
+    };
 
     // Impact checking state for downstream workers
-    socket.on("agent:impact_checking", ({ downstreamRepoNames, checking }) => {
+    const onAgentImpactChecking = ({ downstreamRepoNames, checking }) => {
       setAgents((prev) => {
         const next = { ...prev };
         for (const id of Object.keys(next)) {
@@ -308,32 +311,56 @@ export function useAgentSocket(socket, setters) {
         }
         return next;
       });
-    });
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("agent:spawning", onAgentSpawning);
+    socket.on("agent:created", onAgentCreated);
+    socket.on("agent:snapshot", onAgentSnapshot);
+    socket.on("agent:update", onAgentUpdate);
+    socket.on("agent:prompt_complete", onAgentPromptComplete);
+    socket.on("agent:permission_request", onAgentPermissionRequest);
+    socket.on("agent:error", onAgentError);
+    socket.on("agent:stopped", onAgentStopped);
+    socket.on("agent:prompt_all_complete", onAgentPromptAllComplete);
+    socket.on("agent:broadcast_results", onAgentBroadcastResults);
+    socket.on("agent:broadcast_progress", onAgentBroadcastProgress);
+    socket.on("workitems:updated", onWorkitemsUpdated);
+    socket.on("broadcast:history", onBroadcastHistory);
+    socket.on("mission:updated", onMissionUpdated);
+    socket.on("graph:updated", onGraphUpdated);
+    socket.on("graph:manifest_missing", onGraphManifestMissing);
+    socket.on("graph:unloaded_deps", onGraphUnloadedDeps);
+    socket.on("graph:inconsistency", onGraphInconsistency);
+    socket.on("session:loaded", onSessionLoaded);
+    socket.on("orchestrator:routing_plan", onOrchestratorRoutingPlan);
+    socket.on("agent:impact_checking", onAgentImpactChecking);
 
     return () => {
-      socket.off("connect");
-      socket.off("disconnect");
-      socket.off("agent:spawning");
-      socket.off("agent:created");
-      socket.off("agent:snapshot");
-      socket.off("agent:update");
-      socket.off("agent:prompt_complete");
-      socket.off("agent:permission_request");
-      socket.off("agent:error");
-      socket.off("agent:stopped");
-      socket.off("agent:prompt_all_complete");
-      socket.off("agent:broadcast_results");
-      socket.off("agent:broadcast_progress");
-      socket.off("workitems:updated");
-      socket.off("broadcast:history");
-      socket.off("graph:updated");
-      socket.off("graph:manifest_missing");
-      socket.off("graph:unloaded_deps");
-      socket.off("graph:inconsistency");
-      socket.off("orchestrator:routing_plan");
-      socket.off("agent:impact_checking");
-      socket.off("mission:updated");
-      socket.off("session:loaded");
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("agent:spawning", onAgentSpawning);
+      socket.off("agent:created", onAgentCreated);
+      socket.off("agent:snapshot", onAgentSnapshot);
+      socket.off("agent:update", onAgentUpdate);
+      socket.off("agent:prompt_complete", onAgentPromptComplete);
+      socket.off("agent:permission_request", onAgentPermissionRequest);
+      socket.off("agent:error", onAgentError);
+      socket.off("agent:stopped", onAgentStopped);
+      socket.off("agent:prompt_all_complete", onAgentPromptAllComplete);
+      socket.off("agent:broadcast_results", onAgentBroadcastResults);
+      socket.off("agent:broadcast_progress", onAgentBroadcastProgress);
+      socket.off("workitems:updated", onWorkitemsUpdated);
+      socket.off("broadcast:history", onBroadcastHistory);
+      socket.off("mission:updated", onMissionUpdated);
+      socket.off("graph:updated", onGraphUpdated);
+      socket.off("graph:manifest_missing", onGraphManifestMissing);
+      socket.off("graph:unloaded_deps", onGraphUnloadedDeps);
+      socket.off("graph:inconsistency", onGraphInconsistency);
+      socket.off("session:loaded", onSessionLoaded);
+      socket.off("orchestrator:routing_plan", onOrchestratorRoutingPlan);
+      socket.off("agent:impact_checking", onAgentImpactChecking);
     };
   }, []);
 }

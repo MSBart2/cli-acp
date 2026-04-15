@@ -8,6 +8,8 @@ import {
   ChevronUp,
   RotateCw,
 } from "lucide-react";
+import StatusBadge from "./StatusBadge.jsx";
+import OutputLog from "./OutputLog.jsx";
 
 /**
  * OrchestratorCard — a full-width, visually distinct card for the
@@ -18,51 +20,6 @@ import {
  * input, permission handling) but with a different layout and styling
  * to make it instantly recognisable as the coordinator.
  */
-
-const statusConfig = {
-  ready: {
-    label: "Ready",
-    dot: "bg-teal-400",
-    text: "text-teal-300",
-    pill: "bg-teal-950/60 border-teal-500/25",
-    pulse: false,
-  },
-  busy: {
-    label: "Synthesizing",
-    dot: "bg-amber-400",
-    text: "text-amber-300",
-    pill: "bg-amber-950/60 border-amber-500/25",
-    pulse: true,
-  },
-  error: {
-    label: "Error",
-    dot: "bg-red-400",
-    text: "text-red-300",
-    pill: "bg-red-950/60 border-red-500/25",
-    pulse: false,
-  },
-  initializing: {
-    label: "Initializing",
-    dot: "bg-blue-400",
-    text: "text-blue-300",
-    pill: "bg-blue-950/60 border-blue-500/25",
-    pulse: true,
-  },
-  spawning: {
-    label: "Spawning",
-    dot: "bg-purple-400",
-    text: "text-purple-300",
-    pill: "bg-purple-950/60 border-purple-500/25",
-    pulse: true,
-  },
-  stopped: {
-    label: "Stopped",
-    dot: "bg-gray-400",
-    text: "text-gray-300",
-    pill: "bg-gray-800/60 border-gray-600/25",
-    pulse: false,
-  },
-};
 
 const spawnSteps = ["cloning", "starting", "verifying"];
 
@@ -77,7 +34,6 @@ export default function OrchestratorCard({
 }) {
   const [input, setInput] = useState("");
   const [collapsed, setCollapsed] = useState(false);
-  const status = statusConfig[agent.status] || statusConfig.initializing;
 
   const MAX_VISIBLE = 200;
   const visibleOutput =
@@ -149,22 +105,7 @@ export default function OrchestratorCard({
             className="flex items-center gap-2"
             onClick={(e) => e.stopPropagation()}
           >
-            <div
-              data-testid="orchestrator-status"
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${status.pill} ${status.text}`}
-            >
-              <span className="relative flex h-2 w-2">
-                {status.pulse && (
-                  <span
-                    className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-60`}
-                  />
-                )}
-                <span
-                  className={`relative inline-flex h-2 w-2 rounded-full ${status.dot}`}
-                />
-              </span>
-              {status.label}
-            </div>
+            <StatusBadge status={agent.status} variant="orchestrator" testId="orchestrator-status" />
             <button
               onClick={() => setCollapsed((c) => !c)}
               className="p-1.5 rounded-md hover:bg-white/10 text-gray-500 hover:text-teal-400 transition-colors"
@@ -202,28 +143,25 @@ export default function OrchestratorCard({
             {spawnSteps.map((step, i) => (
               <div key={step} className="flex items-center gap-2">
                 <div
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-bold ${
-                    i < currentStepIdx
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-bold ${i < currentStepIdx
                       ? "bg-teal-500 border-teal-500 text-white"
                       : i === currentStepIdx
                         ? "border-teal-400 text-teal-400 animate-pulse"
                         : "border-gray-600 text-gray-600"
-                  }`}
+                    }`}
                 >
                   {i < currentStepIdx ? "✓" : i + 1}
                 </div>
                 <span
-                  className={`text-xs capitalize ${
-                    i <= currentStepIdx ? "text-gray-300" : "text-gray-600"
-                  }`}
+                  className={`text-xs capitalize ${i <= currentStepIdx ? "text-gray-300" : "text-gray-600"
+                    }`}
                 >
                   {step}
                 </span>
                 {i < spawnSteps.length - 1 && (
                   <div
-                    className={`w-8 h-px ${
-                      i < currentStepIdx ? "bg-teal-500" : "bg-gray-700"
-                    }`}
+                    className={`w-8 h-px ${i < currentStepIdx ? "bg-teal-500" : "bg-gray-700"
+                      }`}
                   />
                 )}
               </div>
@@ -280,29 +218,7 @@ export default function OrchestratorCard({
                     Waiting for broadcast results from workers…
                   </p>
                 )}
-                {visibleOutput.map((entry, idx) => (
-                  <div key={idx}>
-                    {entry.type === "text" && (
-                      <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono leading-relaxed">
-                        {entry.content}
-                      </pre>
-                    )}
-                    {entry.type === "tool_call" && (
-                      <div className="text-xs text-cyan-400/80 font-mono flex items-center gap-1.5">
-                        <span className="text-cyan-500">⚡</span>
-                        {entry.name}
-                        {entry.args && (
-                          <span className="text-gray-500 ml-1">
-                            ({entry.args})
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {entry.type === "error" && (
-                      <p className="text-sm text-red-400">{entry.content}</p>
-                    )}
-                  </div>
-                ))}
+                <OutputLog entries={visibleOutput} variant="orchestrator" />
               </div>
             </div>
           </>
@@ -321,13 +237,12 @@ export default function OrchestratorCard({
                   onClick={() =>
                     onPermissionResponse(agent.agentId, opt.optionId)
                   }
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                    opt.kind === "allow"
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${opt.kind === "allow"
                       ? "bg-green-600/80 hover:bg-green-500 text-white"
                       : opt.kind === "deny"
                         ? "bg-red-600/80 hover:bg-red-500 text-white"
                         : "bg-white/10 hover:bg-white/20 text-gray-200"
-                  }`}
+                    }`}
                 >
                   {opt.name}
                 </button>

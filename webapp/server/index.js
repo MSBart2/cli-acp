@@ -1746,7 +1746,10 @@ io.on("connection", (socket) => {
     console.log(
       `[mission] Context updated (${globalMissionContext.length} chars)`,
     );
-    // Broadcast to ALL connected clients so every tab stays in sync
+    // Broadcast to ALL connected clients so every tab stays in sync.
+    // This is intentional: agents are server-global (shared across all sockets),
+    // so every tab must see the same mission context — otherwise a tab that didn't
+    // set the mission would show agents responding to a brief it can't read.
     io.emit("mission:updated", { text: globalMissionContext });
   });
 

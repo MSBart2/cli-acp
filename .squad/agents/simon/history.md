@@ -18,6 +18,12 @@
 
 ## Learnings
 
+### Session: 2026-04-14 — Toast intercept fix in re-spawn e2e test
+
+- **Toast pointer-event interception:** react-hot-toast `[role="status"]` elements inside `[data-rht-toaster]` remain in the DOM for ~4s and can block `hover()` on underlying elements. The fix is `page.locator('[data-rht-toaster] [role="status"]').waitFor({ state: "hidden", timeout: 15_000 }).catch(() => {})` before any hover that could race with a toast.
+- **Pattern:** Prefer `waitFor({ state: "hidden" })` over `waitForTimeout` — it reacts to actual DOM state rather than sleeping a fixed interval.
+- **Decision written:** `.squad/decisions/inbox/simon-toast-intercept-fix.md`
+
 ### Session: 2026-04-14 — useAgentSocket and permissionResolver tests
 
 - **Unit test counts after this session:** server ~81 (+8), client ~183 (+10) — totals estimated pending a run

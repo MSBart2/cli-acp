@@ -1,51 +1,8 @@
 import React, { useState } from "react";
 import { X, Send, Terminal, GitBranch, Loader2, RotateCw } from "lucide-react";
 import { suggestRepoUrl } from "../dependencySuggestions";
-
-const statusConfig = {
-  ready: {
-    label: "Ready",
-    dot: "bg-green-400",
-    text: "text-green-300",
-    pill: "bg-green-950/60 border-green-500/25",
-    pulse: false,
-  },
-  busy: {
-    label: "Busy",
-    dot: "bg-amber-400",
-    text: "text-amber-300",
-    pill: "bg-amber-950/60 border-amber-500/25",
-    pulse: true,
-  },
-  error: {
-    label: "Error",
-    dot: "bg-red-400",
-    text: "text-red-300",
-    pill: "bg-red-950/60 border-red-500/25",
-    pulse: false,
-  },
-  initializing: {
-    label: "Initializing",
-    dot: "bg-blue-400",
-    text: "text-blue-300",
-    pill: "bg-blue-950/60 border-blue-500/25",
-    pulse: true,
-  },
-  spawning: {
-    label: "Spawning",
-    dot: "bg-purple-400",
-    text: "text-purple-300",
-    pill: "bg-purple-950/60 border-purple-500/25",
-    pulse: true,
-  },
-  stopped: {
-    label: "Stopped",
-    dot: "bg-gray-400",
-    text: "text-gray-300",
-    pill: "bg-gray-800/60 border-gray-600/25",
-    pulse: false,
-  },
-};
+import StatusBadge from "./StatusBadge.jsx";
+import OutputLog from "./OutputLog.jsx";
 
 function extractRepoName(url) {
   try {
@@ -67,7 +24,7 @@ export default function AgentCard({
 }) {
   const [input, setInput] = useState("");
   const [unloadedOpen, setUnloadedOpen] = useState(false);
-  const status = statusConfig[agent.status] || statusConfig.initializing;
+  const [loadingDepUrl, setLoadingDepUrl] = useState({}); // { [depIndex]: string }
 
   // Only show the last 3 output entries to keep cards compact
   const MAX_VISIBLE = 3;
@@ -122,22 +79,7 @@ export default function AgentCard({
             </div>
           </div>
           <div className="flex items-center gap-2 ml-3 shrink-0">
-            <span
-              data-testid="agent-status"
-              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium ${status.pill} ${status.text}`}
-            >
-              <span className="relative flex h-2 w-2">
-                {status.pulse && (
-                  <span
-                    className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-60`}
-                  />
-                )}
-                <span
-                  className={`relative inline-flex h-2 w-2 rounded-full ${status.dot}`}
-                />
-              </span>
-              {status.label}
-            </span>
+            <StatusBadge status={agent.status} variant="worker" testId="agent-status" />
             {agent.impactChecking && (
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/30 text-amber-300 animate-pulse">
                 Impact check…
@@ -168,73 +110,100 @@ export default function AgentCard({
           agent.manifest?.dependedBy?.length > 0 ||
           agent.manifestMissing ||
           agent.unloadedDeps?.length > 0) && (
-          <div className="px-4 py-2 border-b border-white/10 flex flex-wrap items-center gap-2">
-            {agent.manifest?.dependsOn?.length > 0 && (
-              <>
-                <span className="text-xs text-gray-500">uses:</span>
-                {agent.manifest.dependsOn.map((dep, i) => (
-                  <span
-                    key={i}
-                    className="bg-teal-950/60 border border-teal-500/30 text-teal-300 text-xs px-2 py-0.5 rounded-full"
-                  >
-                    {dep}
-                  </span>
-                ))}
-              </>
-            )}
-            {agent.manifest?.dependedBy?.length > 0 && (
-              <>
-                <span className="text-xs text-gray-500">used by:</span>
-                {agent.manifest.dependedBy.map((dep, i) => (
-                  <span
-                    key={i}
-                    className="bg-gray-800/60 border border-gray-600/30 text-gray-400 text-xs px-2 py-0.5 rounded-full"
-                  >
-                    {dep}
-                  </span>
-                ))}
-              </>
-            )}
-            {agent.manifestMissing && !agent.manifest && (
-              <button
-                onClick={() => onCreateManifest?.(agent.agentId)}
-                className="text-xs px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/30 text-amber-300 hover:bg-amber-900/60 transition-colors"
-              >
-                No manifest · Create?
-              </button>
-            )}
-            {agent.unloadedDeps?.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1">
-                <button
-                  onClick={() => setUnloadedOpen((v) => !v)}
-                  className="text-xs px-2 py-0.5 rounded-full bg-blue-950/60 border border-blue-500/30 text-blue-300"
-                >
-                  {agent.unloadedDeps.length} dep
-                  {agent.unloadedDeps.length !== 1 ? "s" : ""} not loaded
-                </button>
-                {unloadedOpen &&
-                  agent.unloadedDeps.map((dep, i) => (
-                    <button
+            <div className="px-4 py-2 border-b border-white/10 flex flex-wrap items-center gap-2">
+              {agent.manifest?.dependsOn?.length > 0 && (
+                <>
+                  <span className="text-xs text-gray-500">uses:</span>
+                  {agent.manifest.dependsOn.map((dep, i) => (
+                    <span
                       key={i}
-                      onClick={() => {
-                        const suggestedUrl =
-                          dep.suggestedUrl ||
-                          suggestRepoUrl(agent.repoUrl, dep.repoName);
-                        const url = prompt(
-                          `Repo URL for ${dep.repoName}`,
-                          suggestedUrl,
-                        );
-                        if (url) onLoadWorker?.(url);
-                      }}
-                      className="text-xs px-2 py-0.5 rounded-full bg-blue-950/40 border border-blue-500/20 text-blue-300 hover:bg-blue-900/40 transition-colors"
+                      className="bg-teal-950/60 border border-teal-500/30 text-teal-300 text-xs px-2 py-0.5 rounded-full"
                     >
-                      {dep.repoName} ({dep.direction}) · Load as Worker
-                    </button>
+                      {dep}
+                    </span>
                   ))}
-              </div>
-            )}
-          </div>
-        )}
+                </>
+              )}
+              {agent.manifest?.dependedBy?.length > 0 && (
+                <>
+                  <span className="text-xs text-gray-500">used by:</span>
+                  {agent.manifest.dependedBy.map((dep, i) => (
+                    <span
+                      key={i}
+                      className="bg-gray-800/60 border border-gray-600/30 text-gray-400 text-xs px-2 py-0.5 rounded-full"
+                    >
+                      {dep}
+                    </span>
+                  ))}
+                </>
+              )}
+              {agent.manifestMissing && !agent.manifest && (
+                <button
+                  onClick={() => onCreateManifest?.(agent.agentId)}
+                  className="text-xs px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/30 text-amber-300 hover:bg-amber-900/60 transition-colors"
+                >
+                  No manifest · Create?
+                </button>
+              )}
+              {agent.unloadedDeps?.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <button
+                    onClick={() => setUnloadedOpen((v) => !v)}
+                    className="text-xs px-2 py-0.5 rounded-full bg-blue-950/60 border border-blue-500/30 text-blue-300"
+                  >
+                    {agent.unloadedDeps.length} dep
+                    {agent.unloadedDeps.length !== 1 ? "s" : ""} not loaded
+                  </button>
+                  {unloadedOpen &&
+                    agent.unloadedDeps.map((dep, i) => {
+                      const suggested = dep.suggestedUrl || suggestRepoUrl(agent.repoUrl, dep.repoName);
+                      const inputVal = loadingDepUrl[i] ?? suggested ?? "";
+                      return (
+                        <div key={i} className="flex items-center gap-1 flex-wrap">
+                          <span className="text-xs text-blue-300">
+                            {dep.repoName} ({dep.direction})
+                          </span>
+                          <input
+                            type="text"
+                            value={inputVal}
+                            onChange={(e) =>
+                              setLoadingDepUrl((prev) => ({ ...prev, [i]: e.target.value }))
+                            }
+                            placeholder="Repo URL…"
+                            className="text-xs bg-blue-950/40 border border-blue-500/20 text-blue-200 rounded px-2 py-0.5 w-48 focus:outline-none focus:ring-1 focus:ring-blue-400/40"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && inputVal) {
+                                onLoadWorker?.(inputVal);
+                                setLoadingDepUrl((prev) => {
+                                  const next = { ...prev };
+                                  delete next[i];
+                                  return next;
+                                });
+                              }
+                            }}
+                          />
+                          <button
+                            onClick={() => {
+                              if (inputVal) {
+                                onLoadWorker?.(inputVal);
+                                setLoadingDepUrl((prev) => {
+                                  const next = { ...prev };
+                                  delete next[i];
+                                  return next;
+                                });
+                              }
+                            }}
+                            className="text-xs px-2 py-0.5 rounded-full bg-blue-950/40 border border-blue-500/20 text-blue-300 hover:bg-blue-900/40 transition-colors"
+                          >
+                            Load as Worker
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
 
         {/* Output area — slightly taller with better text contrast */}
         <div className="min-h-[160px] flex-1 overflow-y-auto bg-black/40 px-4 py-3 font-mono text-sm leading-relaxed">
@@ -254,22 +223,20 @@ export default function AgentCard({
                   return (
                     <div key={step} className="flex items-center gap-2">
                       <div
-                        className={`w-2 h-2 rounded-full transition-colors ${
-                          isDone
+                        className={`w-2 h-2 rounded-full transition-colors ${isDone
                             ? "bg-green-400"
                             : isCurrent
                               ? "bg-purple-400 animate-pulse"
                               : "bg-gray-600"
-                        }`}
+                          }`}
                       />
                       <span
-                        className={`text-xs capitalize ${
-                          isDone
+                        className={`text-xs capitalize ${isDone
                             ? "text-green-400"
                             : isCurrent
                               ? "text-purple-300"
                               : "text-gray-600"
-                        }`}
+                          }`}
                       >
                         {step}
                       </span>
@@ -294,49 +261,7 @@ export default function AgentCard({
               {truncatedCount === 1 ? "" : "s"} hidden
             </div>
           )}
-          {visibleOutput.map((entry, i) => {
-            if (entry.type === "text") {
-              return (
-                <div
-                  key={i}
-                  className="text-gray-200 whitespace-pre-wrap break-words"
-                >
-                  {entry.content}
-                </div>
-              );
-            }
-            if (entry.type === "tool_call") {
-              return (
-                <div
-                  key={i}
-                  className="text-teal-300 my-1.5 flex items-center gap-1"
-                >
-                  <span>🔧 </span>
-                  <span className="font-semibold">{entry.name}</span>
-                  {entry.args && (
-                    <span className="text-gray-400 ml-1 text-xs">
-                      (
-                      {typeof entry.args === "string"
-                        ? entry.args
-                        : JSON.stringify(entry.args)}
-                      )
-                    </span>
-                  )}
-                </div>
-              );
-            }
-            if (entry.type === "error") {
-              return (
-                <div
-                  key={i}
-                  className="text-red-300 my-1.5 flex items-center gap-1"
-                >
-                  <span>⚠</span> <span>{entry.content}</span>
-                </div>
-              );
-            }
-            return null;
-          })}
+          <OutputLog entries={visibleOutput} variant="worker" />
         </div>
 
         {/* Permission banner — prominent amber highlight */}

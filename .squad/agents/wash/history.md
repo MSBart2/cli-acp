@@ -11,6 +11,13 @@
 
 ## Learnings
 
+### Session 2026-04-14 — mission:set broadcast scope investigation
+
+- **Investigated:** whether `io.emit("mission:updated", ...)` in `mission:set` is a bug or intentional.
+- **Finding: intentional and correct.** `agents` is a server-global Map (not socket-scoped). `buildMissionPrefix()` injects `globalMissionContext` into every prompt regardless of which socket fired it. If tab B doesn't know about a mission set by tab A, it would show agents operating under a brief it can't see — that's incoherent.
+- **What changed:** expanded the comment on the `io.emit` line to explain why all tabs need the same mission context. No behavioral change.
+- **Rule:** `io.emit` for `mission:updated` stays until agents become socket-scoped (a much larger architectural change).
+
 ### Session 2026-04-14 — Invert stopAgent save behaviour
 
 - `stopAgent` now uses **opt-in** saving via `{ saveSession: true }` instead of opt-out via `{ skipAutoSave: true }`. Default is `saveSession = false`.
@@ -127,7 +134,7 @@
 - **Inactivity timeout vs. wall-clock timeout:** `withActivityTimeout` is used for prompts — it resets on every `sessionUpdate` heartbeat so long-running agents are never killed mid-work. `withTimeout` (fixed wall-clock) is only used for `initialize()` and `newSession()`.
 - **`skipAutoSave` flag on `stopAgent`:** bulk shutdowns (shutdown-all, test reset, session:load teardown) pass `skipAutoSave: true` to avoid wiping the session with an empty agents array before the save-once-at-the-top completes.
 - **`agent:prompt_all` targets workers only** — orchestrator is excluded and receives synthesized results separately after all workers complete.
-- **`io.emit` vs `socket.emit`:** `mission:set` uses `io.emit` to broadcast to ALL connected tabs; everything else uses the per-socket connection.
+- **`io.emit` vs `socket.emit`:** `mission:set` uses `io.emit` to broadcast to ALL connected tabs; everything else uses the per-socket connection. This is **intentional** — agents are server-global, so all tabs must share the same mission context or they'd see agents responding to a brief they can't read. The comment on that line was expanded to explain the reasoning. No behavioral change was made.
 - **`cascadeRuns` Map** tracks visited repos across multi-hop cascade chains to prevent routing loops.
 - **Manifest cross-population:** when a new agent loads with `dependsOn: [X]`, the server automatically prompts agent X to add this agent to its `dependedBy` array in its manifest file.
 - **`sessionLifecycle.js` is tiny but critical:** `shutdownAgents()` enforces the "save once before loop" pattern; calling `stopAgent` inside the loop with `skipAutoSave: true` prevents the last stop from overwriting a good session.

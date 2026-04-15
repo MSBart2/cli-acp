@@ -218,7 +218,11 @@ test.describe("Scenario 3 — Session save and restore", () => {
     });
 
     const row = page.locator('[data-testid="session-item"]').filter({ hasText: SESSION_NAME });
-    await row.hover();
+
+    // Use force:true to bypass react-hot-toast notifications that may be covering
+    // the row when agents finish spawning. The toast intercepts pointer events but
+    // the session item is still the intended target.
+    await row.hover({ force: true });
 
     // Click "Re-spawn agents"
     await row.locator('button[title="Re-spawn agents"]').click();
