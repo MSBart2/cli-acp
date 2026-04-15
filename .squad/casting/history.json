@@ -1,0 +1,11 @@
+{
+  "assignments": [
+    {
+      "assignment_id": "cli-acp-firefly-2026-04-14",
+      "universe": "firefly",
+      "project": "cli-acp",
+      "created_at": "2026-04-14",
+      "agents": ["Mal", "Wash", "Kaylee", "Zoe", "Simon"]
+    }
+  ]
+}

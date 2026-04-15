@@ -1,0 +1,14 @@
+[
+  { "persistent_name": "Mal",    "universe": "firefly", "role": "Lead",            "created_at": "2026-04-14", "legacy_named": false, "status": "active" },
+  { "persistent_name": "Wash",   "universe": "firefly", "role": "Backend Dev",     "created_at": "2026-04-14", "legacy_named": false, "status": "active" },
+  { "persistent_name": "Kaylee", "universe": "firefly", "role": "Frontend Dev",    "created_at": "2026-04-14", "legacy_named": false, "status": "active" },
+  { "persistent_name": "Zoe",    "universe": "firefly", "role": "ACP Specialist",  "created_at": "2026-04-14", "legacy_named": false, "status": "active" },
+  { "persistent_name": "Simon",  "universe": "firefly", "role": "Tester",          "created_at": "2026-04-14", "legacy_named": false, "status": "active" },
+  { "persistent_name": "Scribe", "universe": "n/a",     "role": "Session Logger",  "created_at": "2026-04-14", "legacy_named": false, "status": "active" },
+  { "persistent_name": "Ralph",  "universe": "n/a",     "role": "Work Monitor",    "created_at": "2026-04-14", "legacy_named": false, "status": "active" },
+  { "persistent_name": "Danny",      "universe": "oceans-eleven", "role": "Lead",          "created_at": "2026-04-13", "legacy_named": true, "status": "retired" },
+  { "persistent_name": "Rusty",      "universe": "oceans-eleven", "role": "Frontend Dev",  "created_at": "2026-04-13", "legacy_named": true, "status": "retired" },
+  { "persistent_name": "Linus",      "universe": "oceans-eleven", "role": "Backend Dev",   "created_at": "2026-04-13", "legacy_named": true, "status": "retired" },
+  { "persistent_name": "Livingston", "universe": "oceans-eleven", "role": "ACP Specialist","created_at": "2026-04-13", "legacy_named": true, "status": "retired" },
+  { "persistent_name": "Basher",     "universe": "oceans-eleven", "role": "Tester",        "created_at": "2026-04-13", "legacy_named": true, "status": "retired" }
+]

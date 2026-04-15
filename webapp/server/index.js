@@ -69,7 +69,7 @@ if (process.env.NODE_ENV !== "production") {
   app.post("/api/test/reset", (_req, res) => {
     const ids = [...agents.keys()];
     for (const agentId of ids) {
-      stopAgent(agentId, null, { skipAutoSave: true });
+      stopAgent(agentId, null);
       // Broadcast the stop to all connected browser clients
       io.emit("agent:stopped", { agentId });
     }
@@ -82,7 +82,7 @@ if (process.env.NODE_ENV !== "production") {
 // Agent registry – one entry per spawned copilot process
 // ---------------------------------------------------------------------------
 
-/** @type {Map<string, {process, connection, sessionId, repoUrl, repoName, repoPath, role, status, permissionResolver}>} */
+/** @type {Map<string, {process, connection, sessionId, repoUrl, repoName, repoPath, role, status, permissionResolver, socketId, pendingPermissionOptions}>} */
 const agents = new Map();
 
 /**
@@ -879,7 +879,10 @@ async function createAgent(
       // Wait until the frontend responds via `agent:permission_response`
       return new Promise((resolve) => {
         const agent = agents.get(agentId);
-        if (agent) agent.permissionResolver = resolve;
+        if (agent) {
+          agent.permissionResolver = resolve;
+          agent.pendingPermissionOptions = options;
+        }
       });
     },
 
@@ -981,6 +984,8 @@ async function createAgent(
     role,
     status: "initializing",
     permissionResolver: null,
+    socketId: socket.id,
+    pendingPermissionOptions: null,
     // Heartbeat function set while a prompt is in-flight; called from
     // sessionUpdate to reset the inactivity timeout on each streaming update.
     heartbeat: null,
@@ -1279,7 +1284,7 @@ io.on("connection", (socket) => {
   // -- Stop an agent --
   socket.on("agent:stop", ({ agentId }) => {
     console.log(`[socket] agent:stop → ${agentId.slice(0, 8)}`);
-    stopAgent(agentId);
+    stopAgent(agentId, null, { saveSession: true });
     socket.emit("agent:stopped", { agentId });
   });
 
@@ -1831,6 +1836,30 @@ Fill in the description, role, and techStack based on your knowledge of this rep
 
   socket.on("disconnect", () => {
     console.log(`[socket] Client disconnected: ${socket.id}`);
+    // Unblock any agents waiting on a permission response from this socket.
+    // Without this, the ACP child process hangs permanently after a browser refresh.
+    for (const [agentId, agent] of agents) {
+      if (agent.socketId === socket.id && agent.permissionResolver) {
+        console.log(
+          `[agent:${agentId.slice(0, 8)}] Resolving orphaned permission (socket disconnected)`,
+        );
+        // Prefer a "block"/"deny"-kind option so the agent can fail gracefully;
+        // fall back to the first available option to unblock the process.
+        const denyOption = agent.pendingPermissionOptions?.find(
+          (o) => o.kind === "block" || o.kind === "deny",
+        );
+        const fallbackOption = agent.pendingPermissionOptions?.[0];
+        const optionId = denyOption?.optionId ?? fallbackOption?.optionId;
+        if (optionId) {
+          agent.permissionResolver({ outcome: { outcome: "selected", optionId } });
+        } else {
+          // No options to resolve with — terminate to prevent permanent deadlock
+          stopAgent(agentId);
+        }
+        agent.permissionResolver = null;
+        agent.pendingPermissionOptions = null;
+      }
+    }
   });
 });
 
@@ -1839,7 +1868,7 @@ Fill in the description, role, and techStack based on your knowledge of this rep
 // ---------------------------------------------------------------------------
 
 function stopAgent(agentId, socket = null, options = {}) {
-  const { skipAutoSave = false } = options;
+  const { saveSession = false } = options;
   const agent = agents.get(agentId);
   if (!agent) return;
 
@@ -1871,7 +1900,7 @@ function stopAgent(agentId, socket = null, options = {}) {
   console.log(`[agent:${agentId.slice(0, 8)}] Stopped and cleaned up`);
   socket?.emit("agent:stopped", { agentId });
 
-  if (!skipAutoSave) {
+  if (saveSession) {
     saveCurrentSession();
   }
 }

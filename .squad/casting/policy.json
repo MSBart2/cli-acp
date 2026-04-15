@@ -1,0 +1,7 @@
+{
+  "version": "1.0",
+  "selectedUniverse": "firefly",
+  "capacity": 9,
+  "allowMixing": false,
+  "overflowStrategy": "diegetic-expansion"
+}
