@@ -24,9 +24,19 @@
 - **Pattern:** Prefer `waitFor({ state: "hidden" })` over `waitForTimeout` — it reacts to actual DOM state rather than sleeping a fixed interval.
 - **Decision written:** `.squad/decisions/inbox/simon-toast-intercept-fix.md`
 
+### Session: 2026-04-14 — Tests for new helpers.js exports
+
+- **29 new server tests** added to `webapp/server/__tests__/helpers.test.js` covering `parseRoutingPlan`, `buildMissionPrefix`, `buildCrossRepoContext`, `enrichPromptText`, and `buildSynthesisPrompt`.
+- **Two tests needed fixing after initial run:**
+  - `parseRoutingPlan` whitespace-trimming test: spaces between `@` and repo name prevent the `\w+` regex from matching — test corrected to use `@my-repo: Fix the bug` (no gap after `@`).
+  - `buildSynthesisPrompt` error-placeholder test: negative assertion `not.toContain("failing-repo\n")` was always false because the heading `## failing-repo` includes that substring. Fixed to assert that the *actual output text* is absent instead.
+- **Final test counts:** server **110** (81 prior + 29 new), client **184** — all passing.
+- **Pattern note:** when testing a regex-based parser, construct inputs that the regex can actually match before asserting trim behaviour; confirm negative assertions reference unique text that genuinely won't appear in passing output.
+
 ### Session: 2026-04-14 — useAgentSocket and permissionResolver tests
 
-- **Unit test counts after this session:** server ~81 (+8), client ~183 (+10) — totals estimated pending a run
+
+- **Unit test counts after this session:** server 81 (+8), client 183 (+10) — confirmed passing
 - **Testing custom hooks:** use `renderHook` from `@testing-library/react`; build a `makeMockSocket()` helper that stores handlers in a map keyed by event name and exposes `_emit(event, data)` to simulate server pushes. The hook registers `"connect"` twice (setConnected + re-request state), so store handlers as arrays.
 - **Testing state-updater functions:** when a setter is called with a function (e.g. `setAgents(prev => ...)`), capture it from `vi.fn().mock.calls.at(-1)[0]` and invoke it with a fixture state object to assert the transformation.
 - **Server algorithm extraction for testability:** when `server/index.js` is not importable in isolation, copy the algorithm into the test file as a pure function and test it directly. Document this in the test with a comment explaining why.

@@ -253,3 +253,21 @@ stopAgent(agentId, socket = null, options = {})
 **Key insight:** `stopAgent` is a `function` declaration (hoisted), so it is safely callable from inside the `socket.on("connection")` closure even though it is defined later in the file.
 
 **Pattern to remember:** Whenever a promise resolver is stored on a registry entry and the event source (socket, tab) can disappear, the `disconnect` / cleanup event MUST iterate the registry and resolve or abort all dangling promises. Leaving resolvers dangling causes silent process hangs with no observable error.
+
+### 2026-04-14 — Extract requestPermission and sessionUpdate as named factory functions
+
+**Task:** Mechanically extract the two anonymous ACP client callbacks from the `createAgent` closure into named module-level factory functions.
+
+**What was extracted:**
+
+1. **`createRequestPermissionHandler(socket, agentId, { agents })`** — wraps the `requestPermission` logic: logs the permission request, maps options to `{ optionId, name, kind }`, emits `agent:permission_request` over Socket.IO, then suspends via a `new Promise` that stores the resolver on `agent.permissionResolver` and stores the options on `agent.pendingPermissionOptions`.
+
+2. **`createSessionUpdateHandler(socket, agentId, { agents, getActiveBroadcastWave, setActiveBroadcastWave })`** — wraps the `sessionUpdate` logic: resets the inactivity heartbeat, then dispatches on `update.sessionUpdate` across five cases (`agent_message_chunk`, `tool_call`, `tool_call_update`, `plan`, `agent_thought_chunk`). The `activeBroadcastWave` module-level variable is accessed via `getActiveBroadcastWave()` getter rather than closed over directly, keeping the factory side-effect-free with respect to module state.
+
+**Changes inside `createAgent`:**
+- Removed the now-unused `let permissionResolver = null;` local variable (the actual state lives on `agent.permissionResolver`).
+- Replaced the inline `client` object with two factory calls and a minimal `client = { requestPermission: ..., sessionUpdate: ... }` wrapper.
+
+**Key design note for `activeBroadcastWave`:** The sessionUpdate handler only *reads* `activeBroadcastWave` (never sets it). The getter/setter interface was kept symmetric per task spec so future changes that need to mutate it don't require revisiting the factory signature.
+
+**Test result:** 81/81 server tests passing after extraction. Zero behavior change.

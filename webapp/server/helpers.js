@@ -329,3 +329,111 @@ export function inferManifestRelationships(agentsMap, agentId) {
     dependedBy: [...downstream].sort((a, b) => a.localeCompare(b)),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Prompt enrichment helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse orchestrator output for @repo: prompt routing directives.
+ * Returns an array of { repoName, promptText } pairs.
+ * Returns null if the output contains NO_CASCADE.
+ * @param {string} text
+ * @returns {Array<{repoName: string, promptText: string}>|null}
+ */
+export function parseRoutingPlan(text) {
+  if (!text || /NO_CASCADE/i.test(text)) return null;
+  const directives = [];
+  const re = /@([\w-]+)\s*:\s*([^\n@]+)/g;
+  for (const match of text.matchAll(re)) {
+    directives.push({ repoName: match[1].trim(), promptText: match[2].trim() });
+  }
+  return directives.length > 0 ? directives : null;
+}
+
+/**
+ * Returns a formatted session brief prefix to prepend to agent prompts.
+ * Returns an empty string when no shared brief has been set.
+ * @param {string} missionContext
+ * @returns {string}
+ */
+export function buildMissionPrefix(missionContext) {
+  if (!missionContext?.trim()) return "";
+  return `## Session Brief\n${missionContext.trim()}\n\n---\n\n`;
+}
+
+/**
+ * Build the cross-repo context block to prepend to worker prompts.
+ * Returns an empty string if the agent has no known dependencies.
+ * @param {Map} agents
+ * @param {string} agentId
+ * @returns {string}
+ */
+export function buildCrossRepoContext(agents, agentId) {
+  const agent = agents.get(agentId);
+  if (!agent?.manifest) return "";
+
+  const { upstream, downstream } = getGraphRelationships(agents, agentId);
+
+  if (upstream.length === 0 && downstream.length === 0) return "";
+
+  const lines = ["## Cross-Repo Context (injected by ACP Orchestrator)"];
+  if (upstream.length > 0) {
+    lines.push(
+      `This repo depends on: ${upstream.join(", ")} (also loaded in this session).`,
+    );
+  }
+  if (downstream.length > 0) {
+    lines.push(
+      `The following repos in this session depend on this repo: ${downstream.join(", ")}.`,
+    );
+  }
+  lines.push(
+    "Keep cross-repo compatibility in mind. If your changes affect public interfaces, flag them explicitly.",
+  );
+  return lines.join("\n") + "\n\n";
+}
+
+/**
+ * Enrich a prompt with session brief and cross-repo context.
+ * @param {string} text - The original prompt text
+ * @param {string} missionPrefix - Result of buildMissionPrefix()
+ * @param {string} crossRepoContext - Result of buildCrossRepoContext()
+ * @returns {string}
+ */
+export function enrichPromptText(text, missionPrefix, crossRepoContext) {
+  return missionPrefix + (crossRepoContext ? crossRepoContext + text : text);
+}
+
+/**
+ * Build the synthesis prompt sent to the orchestrator after a broadcast wave.
+ * @param {Array<{repoName: string, status: string, output: string}>} results
+ * @param {string} promptText - The original broadcast prompt
+ * @param {string|null} synthesisInstructions - Optional user focus guidance
+ * @param {string} missionContext - Current mission context
+ * @returns {string}
+ */
+export function buildSynthesisPrompt(results, promptText, synthesisInstructions, missionContext) {
+  const workerSummaries = results
+    .map(
+      (r) =>
+        `## ${r.repoName}\n${r.status === "error" ? "_Agent errored — no output._" : r.output}`,
+    )
+    .join("\n\n");
+
+  return (
+    buildMissionPrefix(missionContext) +
+    `Here are the results from ${results.length} worker agents after a broadcast prompt.\n\n` +
+    `**Original prompt:** "${promptText}"\n\n` +
+    `${workerSummaries}\n\n` +
+    `Synthesize these results into a coordination document. ` +
+    `Identify the overall state across repos, flag any cross-repo dependencies or risks, ` +
+    `and recommend a priority order for next steps. ` +
+    `If any workers reported issue URLs, collect them into a table with columns: Repo, Issue, Title. ` +
+    `If any workers reported PR URLs, collect them into a table with columns: Repo, PR, Status, Dependencies, Notes. ` +
+    `Write your synthesis to a file in the operations/ directory of this repo.` +
+    (synthesisInstructions
+      ? `\n\n--- User orchestrator focus ---\n${synthesisInstructions}`
+      : "")
+  );
+}
