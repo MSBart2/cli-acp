@@ -10,6 +10,21 @@
 
 ## Learnings
 
+### 2026-04-14 — Server code simplification + testability refactor (completed)
+
+Resolved the broadcast concurrency risk flagged in the initial deep-read: `activeBroadcastWave` guard added to `agent:prompt_all` — second broadcast rejected if first wave is still active (Wash).
+
+Full extraction batch:
+- **Zoe:** `createSessionUpdateHandler` + `createRequestPermissionHandler` moved to module level; ACP wiring now unit-testable without spawning copilot
+- **Wash:** `spawnAndConnect`, `crossPopulateDependedBy`, `forwardToOrchestrator`, `respawnAgentsFromSnapshot` extracted from `index.js`; `parseRoutingPlan`, `buildMissionPrefix`, `buildCrossRepoContext`, `enrichPromptText`, `buildSynthesisPrompt` moved to `helpers.js` as named exports
+- **Simon:** 29 new server tests for extracted helpers — server 110, client 184 = 294 total, all passing
+
+No behavior change. Reduces cognitive load in `createAgent` and `index.js` socket handlers.
+
+**Risk closed:** broadcast wave state overwrite (was item 3 in Cross-Cutting Concerns from initial deep-read).
+
+---
+
 ### 2026-04-14 — Initial deep-read
 
 #### System Overview

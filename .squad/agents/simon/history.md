@@ -6,7 +6,7 @@
 - **Operator:** hobobart
 - **My domain:** All tests — `webapp/e2e/`, `webapp/server/__tests__/`, `webapp/client/src/__tests__/`
 - **E2E:** Playwright, config in `webapp/playwright.config.js` — `timeout: 30_000`, `workers: 1`, `fullyParallel: false`, `reuseExistingServer: !process.env.CI`
-- **Unit tests:** Vitest + React Testing Library. 73 server + 173 client = 246 total (all passing as of 2026-04-14)
+- **Unit tests:** Vitest + React Testing Library. 110 server + 184 client = 294 total (all passing as of 2026-04-14)
 - **E2E tests:** 21 tests across 3 specs (all passing as of 2026-04-14)
 - **Page object:** `webapp/e2e/helpers/AppPage.js` — `openSessionPanel()`, `waitForOrchestratorReady()`, `waitForWorkerReady()`, `loadSession()`
 - **Key lessons learned:**
@@ -17,6 +17,18 @@
   - `data-testid` contract: `orchestrator-status`, `agent-status`, `broadcast-panel`, `broadcast-submit`, `session-trigger`, `session-item`
 
 ## Learnings
+
+### Session: 2026-04-14 — 29 new tests for extracted helpers.js functions
+
+- **29 new server tests** added to `webapp/server/__tests__/helpers.test.js` covering the five newly exported helpers: `parseRoutingPlan`, `buildMissionPrefix`, `buildCrossRepoContext`, `enrichPromptText`, `buildSynthesisPrompt`.
+- **Two tests required correction after initial run:**
+  - `parseRoutingPlan` whitespace test: spaces between `@` and repo name break `\w+` regex — corrected to use `@my-repo: Fix the bug`
+  - `buildSynthesisPrompt` negative assertion: `not.toContain("failing-repo\n")` always fails because the heading `## failing-repo` contains that substring — fixed to assert absence of the actual error placeholder text
+- **Final test counts:** server **110** (81 prior + 29 new), client **184** — all passing.
+- **Pattern note:** when testing a regex-based parser, construct inputs the regex can actually match before asserting trim behaviour; confirm negative assertions reference unique text that genuinely won't appear in passing output.
+- **Updated total count in Core Context** (below): server 110, client 184 = 294 total.
+
+---
 
 ### Session: 2026-04-14 — Toast intercept fix in re-spawn e2e test
 

@@ -15,6 +15,17 @@
 
 ---
 
+### Session 2026-04-14 — Extract ACP client callbacks as named factory functions
+
+- Extracted `createRequestPermissionHandler(socket, agentId, { agents })` and `createSessionUpdateHandler(socket, agentId, { agents, getActiveBroadcastWave, setActiveBroadcastWave })` from inside `createAgent` into named module-level factory functions.
+- `sessionUpdate` handler accesses `activeBroadcastWave` via accessor pair — not direct closure over the module `let` — so the value is always current even if the wave changes between ticks.
+- Removed `let permissionResolver = null;` local from `createAgent`; state lives on `agent.permissionResolver` (already established by the disconnect-cleanup work).
+- Both handlers are now importable without spawning a real copilot process. Zero behavior change.
+- Decision written: `.squad/decisions/inbox/zoe-session-update-extract.md` (now merged to `decisions.md`).
+- **Rule:** ACP client callbacks must be named factory functions at module level — not anonymous closures inside `createAgent`.
+
+---
+
 ## GitHub Official ACP Reference (docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server)
 
 > Captured 2026-04-14. ACP support in GitHub Copilot CLI is in public preview and subject to change.

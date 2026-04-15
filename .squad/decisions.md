@@ -57,6 +57,56 @@ Three highest-priority items selected for immediate execution:
 
 All three completed in the same session. See orchestration logs for per-agent detail.
 
+---
+
+### [2026-04-14] Extract ACP client callbacks as named factory functions
+
+**Author:** Zoe | **Requested by:** hobobart
+
+Extracted `createRequestPermissionHandler` and `createSessionUpdateHandler` from inside `createAgent` into named module-level factory functions in `server/index.js`. Both return the async callback used by `ClientSideConnection`. `activeBroadcastWave` is accessed via `getActiveBroadcastWave()` / `setActiveBroadcastWave()` accessor pairs rather than direct closure over the module `let`.
+
+**Rule:** ACP client callbacks must live as named factory functions at module level — not as anonymous closures inside `createAgent`. This keeps them importable and unit-testable without a real copilot process.
+
+---
+
+### [2026-04-14] mission:set uses io.emit — intentional
+
+**Author:** Wash | **Requested by:** hobobart
+
+`io.emit("mission:updated", ...)` inside `mission:set` is intentional and correct. `agents` is a server-global Map (not socket-scoped); `buildMissionPrefix()` injects `globalMissionContext` into every prompt. If a tab doesn't receive the broadcast it shows agents operating under a brief it can't read — incoherent for a single-user local tool. Comment on the emit line was expanded to explain this. No behavioral change.
+
+**Rule:** `io.emit` for `mission:updated` must remain as-is until agents become socket-scoped (a much larger architectural change). `mission:get` correctly uses `socket.emit` (tab-scoped refresh only).
+
+---
+
+### [2026-04-14] E2E acceptance criteria directive
+
+**Author:** hobobart (via Copilot)
+
+E2E tests are required as part of acceptance criteria for any significant or dangerous work. Squad coordinator decides when work qualifies — use judgment. Unit tests alone are not sufficient for shipping risky changes.
+
+---
+
+### [2026-04-14] Extract StatusBadge and OutputLog shared components
+
+**Author:** Kaylee | **Requested by:** hobobart
+
+Introduced `components/StatusBadge.jsx` and `components/OutputLog.jsx` to eliminate duplication between `AgentCard.jsx` and `OrchestratorCard.jsx`. Both use a `variant="worker"|"orchestrator"` prop to encode per-card styling differences. `AgentCard`'s `window.prompt()` for unloaded-dep URL entry replaced with inline controlled input (`loadingDepUrl` state).
+
+**Rule:** New shared UI primitives belong in `components/` as default-exported functional components. Use a `variant` prop (string union) for per-card appearance differences. Never use `window.prompt()` for user input — use controlled React state + inline inputs.
+
+---
+
+### [2026-04-14] Wait for toast notifications before hover in e2e tests
+
+**Author:** Simon | **Requested by:** hobobart
+
+Before calling `row.hover()` in the re-spawn restore e2e test, wait for all `[data-rht-toaster] [role="status"]` elements to reach `hidden` state (up to 15 s). `.catch(() => {})` makes the guard non-blocking when no toasts are present.
+
+**Rule:** Any e2e hover that could race with a react-hot-toast notification must use `waitFor({ state: "hidden" })` on `[data-rht-toaster] [role="status"]` before hovering. Never use `waitForTimeout` as a substitute.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

@@ -11,7 +11,34 @@
 
 ## Learnings
 
-### Session 2026-04-14 — mission:set broadcast scope investigation
+### Session 2026-04-14 — Server code simplification + testability refactor
+
+#### index.js function extraction
+
+Extracted four large multi-line blocks from `server/index.js` into named module-level functions:
+- `spawnAndConnect(agentId, repoDir, model, client)` — spawns copilot process, wires ACP connection via `acp.ndJsonStream` + `ClientSideConnection`
+- `crossPopulateDependedBy(agents)` — fills bidirectional `dependedBy` edges from one-sided `dependsOn` declarations (mirrors the graph logic in helpers.js)
+- `forwardToOrchestrator(socket, agents, broadcastWave, synthesisInstructions)` — coalesces worker output from a completed broadcast wave and auto-prompts the orchestrator
+- `respawnAgentsFromSnapshot(socket, snapshot, agents, io)` — re-launches agent processes from a saved session snapshot on `session:load` with `mode="respawn"`
+
+#### helpers.js extraction
+
+Moved five prompt-building and routing functions from `server/index.js` to `server/helpers.js` as named exports:
+- `parseRoutingPlan(text)` — extracts `@repo: instruction` lines from orchestrator output
+- `buildMissionPrefix(missionContext)` — builds mission preamble string
+- `buildCrossRepoContext(agentId, agents)` — constructs upstream dependency context block
+- `enrichPromptText(text, agentId, agents, missionContext)` — composes full enriched prompt
+- `buildSynthesisPrompt(synthesisInstructions, broadcastResults)` — builds orchestrator synthesis prompt
+
+All five are now individually unit-testable and covered by 29 new tests in `helpers.test.js`.
+
+#### Concurrency guard for activeBroadcastWave
+
+Added a guard to `agent:prompt_all`: if a broadcast wave is already active, the second request is rejected early (returns an error event). This closes Mal's risk item from the initial deep-read ("only one `activeBroadcastWave` at a time — if a second fires before the first settles, state will be overwritten").
+
+---
+
+
 
 - **Investigated:** whether `io.emit("mission:updated", ...)` in `mission:set` is a bug or intentional.
 - **Finding: intentional and correct.** `agents` is a server-global Map (not socket-scoped). `buildMissionPrefix()` injects `globalMissionContext` into every prompt regardless of which socket fired it. If tab B doesn't know about a mission set by tab A, it would show agents operating under a brief it can't see — that's incoherent.
