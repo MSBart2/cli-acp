@@ -157,10 +157,9 @@ describe("AgentCard", () => {
         onPermissionResponse={noop}
       />
     );
-    // Both icon-only buttons have empty accessible names — grab all and
-    // pick the first one (the X / close button in the card header)
-    const buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[0]);
+    // Find the Stop Agent button by its title attribute
+    const stopButton = screen.getByTitle("Stop Agent");
+    fireEvent.click(stopButton);
     expect(stoppedId).toBe("test-agent-1");
   });
 

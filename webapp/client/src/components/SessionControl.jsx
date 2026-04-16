@@ -18,6 +18,8 @@ export default function SessionControl({ socket }) {
   const [saveInput, setSaveInput] = useState("");
   // Tracks which session id is in the "confirm delete" state
   const [pendingDelete, setPendingDelete] = useState(null);
+  // Inline error message when a session load/restore fails
+  const [sessionError, setSessionError] = useState(null);
   const deleteTimerRef = useRef(null);
   const saveInputRef = useRef(null);
 
@@ -32,7 +34,12 @@ export default function SessionControl({ socket }) {
 
     socket.on("session:loaded", ({ name }) => {
       setCurrentSessionName(name);
+      setSessionError(null);
       setIsOpen(false);
+    });
+
+    socket.on("session:error", ({ message }) => {
+      setSessionError(message);
     });
 
     socket.emit("session:list");
@@ -40,6 +47,7 @@ export default function SessionControl({ socket }) {
     return () => {
       socket.off("session:list");
       socket.off("session:loaded");
+      socket.off("session:error");
     };
   }, [socket]);
 
@@ -101,6 +109,22 @@ export default function SessionControl({ socket }) {
 
       {isOpen && (
         <div className="absolute right-0 top-full mt-2 w-72 bg-[#0a0a0a] border border-white/10 rounded-lg shadow-xl backdrop-blur-xl z-50 p-2 max-h-96 overflow-y-auto">
+          {/* Session error banner */}
+          {sessionError && (
+            <div
+              data-testid="session-restore-error"
+              className="flex items-start gap-2 mb-2 px-2 py-1.5 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-400"
+            >
+              <span className="flex-1">{sessionError}</span>
+              <button
+                onClick={() => setSessionError(null)}
+                className="shrink-0 text-red-400/60 hover:text-red-400 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
           {/* Header: inline save input or "Save as…" button */}
           <div className="flex items-center justify-between mb-2 px-2">
             <span className="text-xs font-semibold text-gray-400">Saved Sessions</span>
@@ -179,8 +203,8 @@ export default function SessionControl({ socket }) {
                       <button
                         onClick={() => handleDeleteClick(s)}
                         className={`p-1 rounded transition-colors ${confirming
-                            ? "bg-red-500/40 text-red-300 animate-pulse"
-                            : "bg-red-500/10 text-red-400 hover:bg-red-500/30"
+                          ? "bg-red-500/40 text-red-300 animate-pulse"
+                          : "bg-red-500/10 text-red-400 hover:bg-red-500/30"
                           }`}
                         title={confirming ? "Click again to confirm delete" : "Delete session"}
                       >

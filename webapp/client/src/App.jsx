@@ -21,6 +21,7 @@ import MissionContext from "./components/MissionContext";
 import RoutingPlanPanel from "./components/RoutingPlanPanel";
 import { useNotifications } from "./hooks/useNotifications";
 import { useAgentSocket } from "./hooks/useAgentSocket.js";
+import { usePermissionPreset } from "./hooks/usePermissionPreset.js";
 import { buildOrchestratorUnloadedDeps } from "./dependencySuggestions";
 
 const SOCKET_URL = import.meta.env.DEV ? "http://localhost:3001" : undefined;
@@ -54,6 +55,8 @@ export default function App() {
     toggleSoundEnabled,
   } = useNotifications(socket);
 
+  const [permissionPreset, setPermissionPreset] = usePermissionPreset();
+
   useAgentSocket(socket, {
     setAgents,
     setConnected,
@@ -68,7 +71,7 @@ export default function App() {
     setRoutingPlan,
     setRepoBaseDir,
     setReuseExisting,
-  });
+  }, { permissionPreset });
 
   const handleLaunchAgent = useCallback(
     (repoUrl, role = "worker", model) => {
@@ -139,7 +142,8 @@ export default function App() {
     socket.emit("mission:set", { text });
   }, []);
 
-  /** Fan-out: send the same prompt to every ready agent at once, or only to @mentioned ones */ const handleBroadcastPrompt =
+  /** Fan-out: send the same prompt to every ready agent at once, or only to @mentioned ones */
+  const handleBroadcastPrompt =
     useCallback((text, synthesisInstructions, targetRepoNames) => {
       setBroadcasting(true);
       // Clear previous results when a new broadcast starts
@@ -169,6 +173,12 @@ export default function App() {
         return next;
       });
     }, []);
+
+  /** Retry the failed agents from the last broadcast wave */
+  const handleRetryFailed = useCallback(() => {
+    setBroadcasting(true);
+    socket.emit("agent:prompt_retry_failed");
+  }, []);
 
   const agentList = Object.values(agents);
   const orchestrator = agentList.find((a) => a.role === "orchestrator");
@@ -225,6 +235,8 @@ export default function App() {
           onRequestBrowserPermission={requestBrowserPermission}
           soundEnabled={soundEnabled}
           onToggleSoundEnabled={toggleSoundEnabled}
+          permissionPreset={permissionPreset}
+          onPermissionPresetChange={setPermissionPreset}
         />
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -298,6 +310,7 @@ export default function App() {
                 <BroadcastResults
                   broadcastResults={broadcastResults}
                   onDismiss={() => setBroadcastResults(null)}
+                  onRetryFailed={handleRetryFailed}
                 />
               )}
             </div>

@@ -7,6 +7,7 @@ import {
   XCircle,
   Copy,
   Check,
+  RefreshCw,
 } from "lucide-react";
 
 /**
@@ -19,10 +20,11 @@ import {
  *
  * @param {{
  *   broadcastResults: { promptText: string, timestamp: string, results: Array<{ agentId: string, repoName: string, repoUrl: string, status: string, output: string }> },
- *   onDismiss: () => void
+ *   onDismiss: () => void,
+ *   onRetryFailed?: () => void
  * }} props
  */
-export default function BroadcastResults({ broadcastResults, onDismiss }) {
+export default function BroadcastResults({ broadcastResults, onDismiss, onRetryFailed }) {
   const [expandedId, setExpandedId] = useState(null);
   const [copied, setCopied] = useState(false);
 
@@ -187,6 +189,16 @@ export default function BroadcastResults({ broadcastResults, onDismiss }) {
               </>
             )}
           </button>
+          {/* Retry button — only shown when there are failed agents */}
+          {errorCount > 0 && onRetryFailed && (
+            <button
+              onClick={onRetryFailed}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-red-400 bg-red-500/[0.08] hover:bg-red-500/20 hover:text-red-300 border border-red-500/20 transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry {errorCount} failed
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -222,7 +222,7 @@ export class AppPage {
   /** Open the session panel. If it's already open, does nothing. */
   async openSessionPanel() {
     // If the panel is already open ("Saved Sessions" heading is visible), skip.
-    const heading = this.page.getByText("Saved Sessions");
+    const heading = this.page.getByText("Saved Sessions", { exact: true });
     const alreadyOpen = await heading.isVisible();
     if (alreadyOpen) return;
 
@@ -264,8 +264,8 @@ export class AppPage {
     const row = this.page.locator('[data-testid="session-item"]').filter({ hasText: name });
     await row.scrollIntoViewIfNeeded();
     const title = mode === "ui" ? "Restore (UI only)" : "Re-spawn agents";
-    // Use native DOM click to bypass CSS opacity-0 and any toast overlays
-    await row.locator(`button[title="${title}"]`).evaluate((el) => el.click());
+    // force: true bypasses the opacity-0 / pointer-events constraint on the action buttons
+    await row.locator(`button[title="${title}"]`).click({ force: true });
   }
 
   // ---------------------------------------------------------------------------
@@ -298,5 +298,76 @@ export class AppPage {
     await card
       .locator('button[title*="Send"], button:has-text("Send")')
       .click();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test-infrastructure helpers (mock worker / /api/test/* endpoints)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Configure the server to use a custom CLI path/args for spawning agents.
+   * Only works when the server is NOT running in production mode.
+   * @param {string} cliPath  Executable path (e.g. "node")
+   * @param {string[]} cliArgs  Extra args prepended before --acp --stdio
+   */
+  async setCliOverride(cliPath, cliArgs = []) {
+    await this.page.request.post("/api/test/set-cli", {
+      data: { path: cliPath, args: cliArgs },
+    });
+  }
+
+  /** Restore the server's CLI to defaults. */
+  async clearCliOverride() {
+    await this.page.request.post("/api/test/clear-cli");
+  }
+
+  /**
+   * Create a mock agent directly from a local repo path, bypassing git clone
+   * and URL validation. The server uses whatever CLI override is active.
+   * Resolves with the assigned agentId.
+   *
+   * @param {string} repoPath  Absolute path to a local git repo on the server host
+   * @param {"worker"|"orchestrator"} [role="worker"]
+   * @param {string} [name]  Optional display name (defaults to basename of repoPath)
+   * @returns {Promise<string>}  agentId
+   */
+  async createMockAgent(repoPath, role = "worker", name) {
+    const res = await this.page.request.post("/api/test/create-agent", {
+      data: { repoPath, role, name },
+    });
+    const body = await res.json();
+    return body.agentId;
+  }
+
+  /**
+   * Wait for the session error banner to become visible in the session panel.
+   * @param {{ timeout?: number }} [opts]
+   */
+  async waitForSessionError({ timeout = 10_000 } = {}) {
+    await expect(
+      this.page.locator('[data-testid="session-restore-error"]'),
+    ).toBeVisible({ timeout });
+  }
+
+  /**
+   * Click the "Retry N failed" button in the BroadcastResults panel.
+   */
+  async clickRetryFailed() {
+    await this.page
+      .locator('button:has-text("Retry")')
+      .filter({ hasText: /failed/i })
+      .click();
+  }
+
+  /**
+   * Wait for the BroadcastResults panel to show at least one error result row.
+   * @param {{ timeout?: number }} [opts]
+   */
+  async waitForBroadcastError({ timeout = 60_000 } = {}) {
+    await this.page
+      .locator('[data-testid="broadcast-result-error"], .text-red-400')
+      .filter({ hasText: /error|fail/i })
+      .first()
+      .waitFor({ state: "visible", timeout });
   }
 }

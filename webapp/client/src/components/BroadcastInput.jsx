@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback } from "react";
-import { Send, Loader2, Radio, ChevronDown, ChevronRight, Sparkles, AtSign } from "lucide-react";
+import { Send, Loader2, Radio, ChevronDown, ChevronRight, Sparkles, AtSign, BookOpen } from "lucide-react";
 import { getMentionAt, parseAtMentions } from "../hooks/mentionUtils.js";
+import { usePlaybooks } from "../hooks/usePlaybooks.js";
+import PlaybookPanel from "./PlaybookPanel.jsx";
 
 /**
  * BroadcastInput — sends a prompt to all (or @mentioned) ready agents at once.
@@ -13,10 +15,19 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [showSynthesis, setShowSynthesis] = useState(false);
 
+  // Compose history — arrow-up/down to recall previous broadcasts
+  const historyRef = useRef([]); // ring of past prompts, newest at end
+  const historyIdxRef = useRef(-1); // -1 = not browsing history
+  const draftRef = useRef(""); // saved draft before entering history mode
+
   // @mention autocomplete state
   const [mention, setMention] = useState(null); // { fragment, start } | null
   const [activeIdx, setActiveIdx] = useState(0);
   const textareaRef = useRef(null);
+
+  // Playbook panel
+  const [showPlaybooks, setShowPlaybooks] = useState(false);
+  const { playbooks, savePlaybook, deletePlaybook } = usePlaybooks();
 
   // Suggestions filtered by the partial fragment the user has typed after @
   const suggestions = mention
@@ -67,10 +78,17 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!text.trim() || readyCount === 0 || broadcasting) return;
+    // Save to compose history before sending
+    const trimmed = text.trim();
+    if (historyRef.current[historyRef.current.length - 1] !== trimmed) {
+      historyRef.current.push(trimmed);
+    }
+    historyIdxRef.current = -1;
+    draftRef.current = "";
     // Pass targetedRepos so the server can filter to only those workers.
     // When no @mentions are present, targetedRepos is empty and the server broadcasts to all.
     onBroadcast(
-      text.trim(),
+      trimmed,
       synthesisInstructions.trim() || undefined,
       targetedRepos.length > 0 ? targetedRepos : undefined,
     );
@@ -101,6 +119,36 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
         setMention(null);
         return;
       }
+    }
+    // Arrow-up/down compose history (only when caret is at start/end of single-line content)
+    if (e.key === "ArrowUp" && !mention) {
+      const history = historyRef.current;
+      if (history.length === 0) return;
+      e.preventDefault();
+      if (historyIdxRef.current === -1) {
+        // Save current draft before entering history
+        draftRef.current = text;
+        historyIdxRef.current = history.length - 1;
+      } else if (historyIdxRef.current > 0) {
+        historyIdxRef.current -= 1;
+      }
+      setText(history[historyIdxRef.current]);
+      setMention(null);
+      return;
+    }
+    if (e.key === "ArrowDown" && historyIdxRef.current !== -1) {
+      e.preventDefault();
+      const history = historyRef.current;
+      if (historyIdxRef.current < history.length - 1) {
+        historyIdxRef.current += 1;
+        setText(history[historyIdxRef.current]);
+      } else {
+        // Return to the draft
+        historyIdxRef.current = -1;
+        setText(draftRef.current);
+      }
+      setMention(null);
+      return;
     }
     // Cmd/Ctrl+Enter to send (regular Enter creates newlines)
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -201,6 +249,33 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
                     </li>
                   ))}
                 </ul>
+              )}
+            </div>
+
+            {/* Playbook button + panel */}
+            <div className="relative self-end">
+              <button
+                type="button"
+                data-testid="playbook-toggle"
+                onClick={() => setShowPlaybooks((v) => !v)}
+                title="Saved playbooks"
+                className={`flex items-center gap-1.5 px-3 py-3 rounded-lg text-sm border transition-all ${
+                  showPlaybooks
+                    ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                    : "bg-white/5 border-white/10 text-gray-400 hover:text-gray-200 hover:bg-white/10"
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+              </button>
+              {showPlaybooks && (
+                <PlaybookPanel
+                  playbooks={playbooks}
+                  currentText={text}
+                  onLoad={setText}
+                  onSave={savePlaybook}
+                  onDelete={deletePlaybook}
+                  onClose={() => setShowPlaybooks(false)}
+                />
               )}
             </div>
 

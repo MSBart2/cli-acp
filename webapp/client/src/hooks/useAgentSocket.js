@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { mergeAgentSnapshot } from "../agentState.js";
+import { resolveAutoApproval } from "./usePermissionPreset.js";
 
 /**
  * Wires all Socket.IO event listeners for the agent orchestrator.
@@ -10,8 +11,9 @@ import { mergeAgentSnapshot } from "../agentState.js";
  *           setBroadcastProgress, setWorkItems, setBroadcastHistory,
  *           setDepGraph, setUnloadedDeps, setMissionContext,
  *           setRoutingPlan, setRepoBaseDir, setReuseExisting }} setters
+ * @param {{ permissionPreset?: string }} [options]
  */
-export function useAgentSocket(socket, setters) {
+export function useAgentSocket(socket, setters, options = {}) {
   const {
     setAgents,
     setConnected,
@@ -27,6 +29,14 @@ export function useAgentSocket(socket, setters) {
     setRepoBaseDir,
     setReuseExisting,
   } = setters;
+
+  // Keep a ref so the permission handler always reads the latest preset without
+  // needing to re-register all socket handlers when the preset changes.
+  const permissionPresetRef = useRef(options.permissionPreset ?? "ask");
+  // Sync ref on every render (no deps array = runs after each render)
+  useEffect(() => {
+    permissionPresetRef.current = options.permissionPreset ?? "ask";
+  });
 
   useEffect(() => {
     // Define all handlers as named consts so the cleanup can pass the exact
@@ -145,7 +155,32 @@ export function useAgentSocket(socket, setters) {
       });
     };
 
+    // Receives the context strings that were prepended to the prompt before it
+    // was sent to the ACP agent — allows the user to inspect what was injected.
+    const onAgentContextInjected = (data) => {
+      setAgents((prev) => {
+        const agent = prev[data.agentId];
+        if (!agent) return prev;
+        return { ...prev, [data.agentId]: { ...agent, injectedContext: data.injectedContext } };
+      });
+    };
+
     const onAgentPermissionRequest = (data) => {
+      // Check if the current preset auto-approves this request
+      const autoOptionId = resolveAutoApproval(
+        permissionPresetRef.current,
+        data.title,
+        data.options,
+      );
+      if (autoOptionId) {
+        // Auto-respond without surfacing the banner to the user
+        socket.emit("agent:permission_response", {
+          agentId: data.agentId,
+          optionId: autoOptionId,
+        });
+        return;
+      }
+      // No auto-approval — show the permission banner on the card
       setAgents((prev) => {
         const agent = prev[data.agentId];
         if (!agent) return prev;
@@ -320,6 +355,7 @@ export function useAgentSocket(socket, setters) {
     socket.on("agent:snapshot", onAgentSnapshot);
     socket.on("agent:update", onAgentUpdate);
     socket.on("agent:prompt_complete", onAgentPromptComplete);
+    socket.on("agent:context_injected", onAgentContextInjected);
     socket.on("agent:permission_request", onAgentPermissionRequest);
     socket.on("agent:error", onAgentError);
     socket.on("agent:stopped", onAgentStopped);
@@ -345,6 +381,7 @@ export function useAgentSocket(socket, setters) {
       socket.off("agent:snapshot", onAgentSnapshot);
       socket.off("agent:update", onAgentUpdate);
       socket.off("agent:prompt_complete", onAgentPromptComplete);
+      socket.off("agent:context_injected", onAgentContextInjected);
       socket.off("agent:permission_request", onAgentPermissionRequest);
       socket.off("agent:error", onAgentError);
       socket.off("agent:stopped", onAgentStopped);

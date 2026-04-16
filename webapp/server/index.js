@@ -1,10 +1,10 @@
 import express from "express";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, readdirSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -41,6 +41,8 @@ import { shutdownAgents } from "./sessionLifecycle.js";
 
 const PORT = process.env.PORT || 3001;
 const COPILOT_CLI_PATH = process.env.COPILOT_CLI_PATH || "copilot";
+// Extra args prepended before --acp --stdio (e.g. for test stub: node /path/to/mockWorker.js)
+const COPILOT_CLI_EXTRA_ARGS = (process.env.COPILOT_CLI_ARGS ?? "").split(/\s+/).filter(Boolean);
 const REPO_BASE_DIR = process.env.REPO_BASE_DIR || join(tmpdir(), "acp-repos");
 // Inactivity timeout: how long a prompt can go without ANY streaming activity
 // (text chunk, tool call, etc.) before we consider it truly stalled.
@@ -48,6 +50,16 @@ const REPO_BASE_DIR = process.env.REPO_BASE_DIR || join(tmpdir(), "acp-repos");
 // calls may be silent for several minutes between updates.
 const PROMPT_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes of silence
 const __filename = fileURLToPath(import.meta.url);
+
+// ---------------------------------------------------------------------------
+// Test-mode runtime state — overrides CLI path/args at test runtime without
+// requiring a server restart. Only mutated by /api/test/* endpoints, which are
+// disabled in production (NODE_ENV=production).
+// ---------------------------------------------------------------------------
+const testCliOverride = {
+  path: /** @type {string|null} */ (null),
+  args: /** @type {string[]} */ ([]),
+};
 const __dirname = dirname(__filename);
 
 // ---------------------------------------------------------------------------
@@ -82,6 +94,138 @@ if (process.env.NODE_ENV !== "production") {
     console.log(`[test/reset] Stopped ${ids.length} agent(s)`);
     res.json({ stopped: ids.length });
   });
+
+  /**
+   * Override the CLI path/args used to spawn agents. Used by e2e mock-worker
+   * tests so the server uses the stub without needing a server restart.
+   * Body: { path?: string, args?: string[] }
+   */
+  app.post("/api/test/set-cli", express.json(), (req, res) => {
+    const { path: cliPath, args: cliArgs } = req.body ?? {};
+    testCliOverride.path = typeof cliPath === "string" ? cliPath : null;
+    testCliOverride.args = Array.isArray(cliArgs) ? cliArgs : [];
+    console.log(`[test/set-cli] Override: ${testCliOverride.path ?? "(none)"} ${testCliOverride.args.join(" ")}`);
+    res.json({ ok: true });
+  });
+
+  /** Restore CLI to defaults. */
+  app.post("/api/test/clear-cli", (_req, res) => {
+    testCliOverride.path = null;
+    testCliOverride.args = [];
+    console.log("[test/clear-cli] Cleared CLI override");
+    res.json({ ok: true });
+  });
+
+  /**
+   * Directly create a mock agent from a local repo path — bypasses git clone
+   * and URL validation. Uses whatever CLI override is currently set.
+   * Body: { repoPath: string, role?: "orchestrator"|"worker", name?: string }
+   */
+  app.post("/api/test/create-agent", express.json(), async (req, res) => {
+    const { repoPath, role = "worker", name } = req.body ?? {};
+    if (typeof repoPath !== "string" || !repoPath) {
+      return res.status(400).json({ error: "repoPath is required" });
+    }
+
+    const agentId = randomUUID();
+    const repoName = name || basename(repoPath);
+    const repoUrl = `file://${repoPath}`;
+
+    // Fake socket that broadcasts to all connected browser clients
+    const fakeSocket = {
+      id: "test-endpoint",
+      emit: (event, data) => io.emit(event, data),
+    };
+
+    io.emit("agent:spawning", {
+      agentId, repoUrl, repoName, model: null, role,
+      step: "starting", message: "Starting mock agent…",
+    });
+
+    let copilotProcess, connection, earlyExitPromise;
+    try {
+      ({ process: copilotProcess, connection, earlyExitPromise } =
+        spawnAndConnect({ agentId, model: null, socket: fakeSocket }));
+    } catch (err) {
+      io.emit("agent:error", { agentId, error: `Spawn failed: ${err.message}` });
+      return res.status(500).json({ error: err.message });
+    }
+
+    agents.set(agentId, {
+      process: copilotProcess, connection,
+      sessionId: null, repoUrl, repoName, repoPath,
+      repoReused: true, // don't delete on cleanup — test owns the dir
+      model: null, role, status: "initializing",
+      permissionResolver: null, socketId: "test-endpoint",
+      pendingPermissionOptions: null, heartbeat: null,
+      eventLog: [], manifest: null, manifestMissing: true,
+    });
+
+    // Respond immediately — the agent finishes init asynchronously
+    res.json({ agentId });
+
+    // Run ACP init + new session in background
+    (async () => {
+      try {
+        const initResult = await Promise.race([
+          connection.initialize({ protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} }),
+          earlyExitPromise,
+        ]);
+        console.log(`[test/create-agent] ${agentId.slice(0, 8)} connected (v${initResult.protocolVersion})`);
+
+        const sessionResult = await connection.newSession({ cwd: repoPath, mcpServers: [] });
+        const agent = agents.get(agentId);
+        if (!agent) return;
+        agent.sessionId = sessionResult.sessionId;
+
+        // Run the verification prompt (mock worker responds with text chunks)
+        agent.capturingManifest = true;
+        agent.manifestText = [];
+        try {
+          await connection.prompt({
+            sessionId: sessionResult.sessionId,
+            prompt: [{ type: "text", text: "NO_MANIFEST: mock test repo" }],
+          });
+        } catch { /* ignore */ }
+        agent.capturingManifest = false;
+        agent.status = "ready";
+
+        const graph = buildDependencyGraph(agents);
+        io.emit("agent:created", buildAgentSnapshot(agentId, graph, "ready"));
+        emitDependencyGraphState(fakeSocket, graph);
+
+        copilotProcess.once("close", (code) => {
+          const current = agents.get(agentId);
+          if (!current || current.status === "stopped") return;
+          current.status = "error";
+          io.emit("agent:error", { agentId, error: `Mock process exited (code ${code ?? "null"})` });
+          agents.delete(agentId);
+        });
+      } catch (err) {
+        console.error(`[test/create-agent] ACP init failed: ${err.message}`);
+        agents.delete(agentId);
+        io.emit("agent:error", { agentId, error: `ACP init failed: ${err.message}` });
+      }
+    })();
+  });
+}
+
+/**
+ * Recursively sum file sizes inside a directory.
+ * @param {string} dir
+ * @returns {number} total bytes
+ */
+function getDirSize(dir) {
+  let total = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += getDirSize(full);
+    } else if (entry.isFile() || entry.isSymbolicLink()) {
+      try { total += statSync(full).size; } catch { /* skip */ }
+    }
+  }
+  return total;
 }
 
 // Returns the structured event log for a single agent — all sessionUpdate events
@@ -90,6 +234,46 @@ app.get("/api/agents/:agentId/events", (req, res) => {
   const agent = agents.get(req.params.agentId);
   if (!agent) return res.status(404).json({ error: "Agent not found" });
   res.json({ agentId: req.params.agentId, events: agent.eventLog });
+});
+
+// Returns the git diff of the cloned repo for a single agent.
+// Shells `git diff HEAD` in the agent's working directory.
+// Responses over 50 KB are truncated and flagged.
+const DIFF_MAX_BYTES = 50 * 1024;
+app.get("/api/agents/:agentId/diff", (req, res) => {
+  const agent = agents.get(req.params.agentId);
+  if (!agent) return res.status(404).json({ error: "Agent not found" });
+  if (!agent.repoPath) return res.status(400).json({ error: "No repo path for this agent" });
+  let diff = "";
+  try {
+    diff = execSync("git diff HEAD", { cwd: agent.repoPath, timeout: 5000 }).toString();
+  } catch {
+    // git diff exits non-zero when there are no changes or the repo has no commits
+    diff = "";
+  }
+  const truncated = Buffer.byteLength(diff) > DIFF_MAX_BYTES;
+  res.json({
+    agentId: req.params.agentId,
+    diff: truncated ? diff.slice(0, DIFF_MAX_BYTES) : diff,
+    truncated,
+  });
+});
+
+// Returns total and per-agent disk usage of cloned repo directories.
+app.get("/api/disk-usage", (req, res) => {
+  const usage = [];
+  for (const [agentId, agent] of agents) {
+    if (!agent.repoPath) continue;
+    try {
+      // Walk the directory tree and sum file sizes
+      const bytes = getDirSize(agent.repoPath);
+      usage.push({ agentId, repoName: agent.repoName, bytes });
+    } catch {
+      usage.push({ agentId, repoName: agent.repoName, bytes: 0 });
+    }
+  }
+  const totalBytes = usage.reduce((sum, a) => sum + a.bytes, 0);
+  res.json({ totalBytes, agents: usage });
 });
 
 // ---------------------------------------------------------------------------
@@ -120,6 +304,13 @@ const MAX_BROADCAST_HISTORY = 10;
  * @type {{ promptText: string, startedAt: string, participants: Map<string, { repoName: string, repoUrl: string, textChunks: string[], status: string }>, socket: object } | null}
  */
 let activeBroadcastWave = null;
+
+/**
+ * Stores the prompt and failed-agent IDs from the most-recently completed
+ * broadcast wave so the client can trigger a targeted retry.
+ * @type {{ promptText: string, synthesisInstructions: string|null, failedAgentIds: string[] } | null}
+ */
+let lastCompletedWave = null;
 
 /** Pending orchestrator-generated routing plans awaiting user approval. */
 const pendingRoutingPlans = new Map();
@@ -636,6 +827,12 @@ async function promptAgent(socket, agentId, text, options = null) {
   agent.lastPromptOutput = [];
   agent.eventLog?.push({ timestamp: new Date().toISOString(), type: "prompt_start", content: { text: originalPromptText } });
 
+  // Inform the client about the context that was injected into this prompt
+  if (missionPrefix || crossRepoContext) {
+    const injectedParts = [missionPrefix, crossRepoContext].filter(Boolean).join("\n\n");
+    socket.emit("agent:context_injected", { agentId, injectedContext: injectedParts });
+  }
+
   const startTime = Date.now();
   try {
     const { promise: promptPromise, heartbeat } = withActivityTimeout(
@@ -892,13 +1089,19 @@ function crossPopulateDependedBy(socket, newAgentRepoName, manifest, agentsMap) 
  * @throws {Error} if the process cannot be spawned
  */
 function spawnAndConnect({ agentId, model, socket }) {
-  const copilotArgs = ["--acp", "--stdio"];
+  // Use runtime test override if set, otherwise fall back to env/default
+  const effectiveCli = testCliOverride.path ?? COPILOT_CLI_PATH;
+  const extraArgs = testCliOverride.args.length > 0
+    ? testCliOverride.args
+    : COPILOT_CLI_EXTRA_ARGS;
+
+  const copilotArgs = [...extraArgs, "--acp", "--stdio"];
   if (typeof model === "string" && model.trim()) {
     copilotArgs.push("--model", model.trim());
   }
 
   // shell: true lets Windows resolve .cmd/.ps1 wrappers (e.g. copilot.cmd)
-  const copilotProcess = spawn(COPILOT_CLI_PATH, copilotArgs, {
+  const copilotProcess = spawn(effectiveCli, copilotArgs, {
     stdio: ["pipe", "pipe", "inherit"],
     shell: true,
   });
@@ -1422,9 +1625,8 @@ io.on("connection", (socket) => {
   });
 
   // -- Broadcast a prompt to all ready agents in parallel --
-  socket.on(
-    "agent:prompt_all",
-    async ({ text, synthesisInstructions, targetRepoNames }) => {
+  // Extracted as a named function so the retry handler can call it directly.
+  const handlePromptAll = async ({ text, synthesisInstructions, targetRepoNames }) => {
       if (typeof text !== "string" || text.length === 0) {
         socket.emit("agent:error", {
           agentId: null,
@@ -1515,6 +1717,11 @@ io.on("connection", (socket) => {
           const missionPrefix = buildMissionPrefix(globalMissionContext);
           const crossRepoCtx = buildCrossRepoContext(agents, agentId);
           const enrichedBroadcastText = enrichPromptText(text, missionPrefix, crossRepoCtx);
+          // Inform client about injected context for broadcast prompts too
+          if (missionPrefix || crossRepoCtx) {
+            const injectedParts = [missionPrefix, crossRepoCtx].filter(Boolean).join("\n\n");
+            socket.emit("agent:context_injected", { agentId, injectedContext: injectedParts });
+          }
           const { promise: promptPromise, heartbeat } = withActivityTimeout(
             agent.connection.prompt({
               sessionId: agent.sessionId,
@@ -1640,6 +1847,16 @@ io.on("connection", (socket) => {
           }
         });
 
+        // Capture the failed agent IDs so the client can trigger a targeted retry
+        const failedAgentIds = [...activeBroadcastWave.participants.entries()]
+          .filter(([, p]) => p.status === "error")
+          .map(([id]) => id);
+        lastCompletedWave = {
+          promptText: activeBroadcastWave.promptText,
+          synthesisInstructions: activeBroadcastWave.synthesisInstructions,
+          failedAgentIds,
+        };
+
         activeBroadcastWave = null;
       }
 
@@ -1648,8 +1865,55 @@ io.on("connection", (socket) => {
 
       // Auto-save history
       saveCurrentSession();
-    },
-  );
+  };
+  socket.on("agent:prompt_all", handlePromptAll);
+
+  // -- Retry failed agents from the last broadcast wave --
+  socket.on("agent:prompt_retry_failed", async () => {
+    if (!lastCompletedWave || lastCompletedWave.failedAgentIds.length === 0) {
+      socket.emit("agent:error", {
+        agentId: null,
+        error: "No failed agents from the last broadcast to retry",
+      });
+      return;
+    }
+    if (activeBroadcastWave) {
+      socket.emit("agent:error", {
+        agentId: null,
+        error: "A broadcast is already in progress — please wait for it to complete",
+      });
+      return;
+    }
+
+    // Only retry agents that still exist and are now ready
+    const failedSet = new Set(lastCompletedWave.failedAgentIds);
+    const retryReadyNames = [...agents.entries()]
+      .filter(([agentId, a]) => failedSet.has(agentId) && a.role === "worker" && a.status === "ready" && a.sessionId)
+      .map(([, a]) => a.repoName);
+
+    if (retryReadyNames.length === 0) {
+      socket.emit("agent:error", {
+        agentId: null,
+        error: "Failed agents are not ready — restart them first",
+      });
+      return;
+    }
+
+    console.log(
+      `[socket] agent:prompt_retry_failed → retrying ${retryReadyNames.length} agent(s)`,
+    );
+
+    const retryPromptText = lastCompletedWave.promptText;
+    const retrySynthesis = lastCompletedWave.synthesisInstructions;
+    // Clear before calling — prevents double-retry on a second click during the new wave
+    lastCompletedWave = null;
+
+    await handlePromptAll({
+      text: retryPromptText,
+      synthesisInstructions: retrySynthesis || undefined,
+      targetRepoNames: retryReadyNames,
+    });
+  });
 
   // -- Session Management --
   socket.on("session:list", () => {
@@ -1676,6 +1940,15 @@ io.on("connection", (socket) => {
       `[session] Loading session: ${name} (mode: ${mode || "display"})`,
     );
 
+    // Validate the session file BEFORE tearing down the current session.
+    // If the file is missing or corrupt we return an error and leave everything
+    // in its current state — there is nothing to restore.
+    const result = loadSession(name);
+    if (!result.success) {
+      socket.emit("session:error", { message: result.error });
+      return;
+    }
+
     // Stop all running agents
     shutdownAll(socket, { persistSnapshot: true });
 
@@ -1683,12 +1956,6 @@ io.on("connection", (socket) => {
     agents.clear();
     workItems.clear();
     broadcastHistory.length = 0;
-
-    const result = loadSession(name);
-    if (!result.success) {
-      socket.emit("session:error", { message: result.error });
-      return;
-    }
 
     currentSessionName = name;
     const { data } = result;
