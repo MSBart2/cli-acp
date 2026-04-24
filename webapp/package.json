@@ -24,7 +24,7 @@
     "test:e2e:report": "playwright show-report --host 0.0.0.0 --port 9323"
   },
   "devDependencies": {
-    "@agentclientprotocol/sdk": "^0.14.1",
+    "@agentclientprotocol/sdk": "^0.20.0",
     "@playwright/test": "^1.59.1",
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3"
