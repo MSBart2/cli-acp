@@ -215,4 +215,261 @@ describe("useAgentSocket", () => {
     expect(setters.setBroadcasting).toHaveBeenCalledWith(false);
     expect(setters.setBroadcastProgress).toHaveBeenCalledWith(null);
   });
+
+  // -------------------------------------------------------------------------
+  // agent:update — text merging
+  // -------------------------------------------------------------------------
+
+  it("agent:update merges consecutive text chunks into one output entry", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    // Seed agent state
+    const agentState = { "a1": { repoName: "r", output: [], status: "busy" } };
+
+    act(() => socket._emit("agent:update", { agentId: "a1", type: "text", content: "Hello " }));
+    const updater1 = setters.setAgents.mock.calls.at(-1)[0];
+    const after1 = updater1(agentState);
+
+    act(() => socket._emit("agent:update", { agentId: "a1", type: "text", content: "World" }));
+    const updater2 = setters.setAgents.mock.calls.at(-1)[0];
+    const after2 = updater2(after1);
+
+    // Two consecutive text updates should be merged into a single entry
+    expect(after2["a1"].output).toHaveLength(1);
+    expect(after2["a1"].output[0]).toEqual({ type: "text", content: "Hello World" });
+  });
+
+  it("agent:update appends new text entry after a tool_call entry", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    const agentState = {
+      "a1": { repoName: "r", output: [{ type: "tool_call", name: "run", args: "ok" }], status: "busy" },
+    };
+
+    act(() => socket._emit("agent:update", { agentId: "a1", type: "text", content: "Result" }));
+    const updater = setters.setAgents.mock.calls.at(-1)[0];
+    const after = updater(agentState);
+
+    expect(after["a1"].output).toHaveLength(2);
+    expect(after["a1"].output[1]).toEqual({ type: "text", content: "Result" });
+  });
+
+  // -------------------------------------------------------------------------
+  // agent:update — tool_call and tool_call_update
+  // -------------------------------------------------------------------------
+
+  it("agent:update handles tool_call type", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    const agentState = { "a1": { repoName: "r", output: [], status: "busy" } };
+
+    act(() => socket._emit("agent:update", {
+      agentId: "a1",
+      type: "tool_call",
+      content: { title: "readFile", status: "running" },
+    }));
+
+    const updater = setters.setAgents.mock.calls.at(-1)[0];
+    const after = updater(agentState);
+
+    expect(after["a1"].output).toHaveLength(1);
+    expect(after["a1"].output[0]).toEqual({ type: "tool_call", name: "readFile", args: "running" });
+  });
+
+  it("agent:update handles tool_call_update type", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    const agentState = { "a1": { repoName: "r", output: [], status: "busy" } };
+
+    act(() => socket._emit("agent:update", {
+      agentId: "a1",
+      type: "tool_call_update",
+      content: { toolCallId: "tc-1", status: "completed" },
+    }));
+
+    const updater = setters.setAgents.mock.calls.at(-1)[0];
+    const after = updater(agentState);
+
+    expect(after["a1"].output[0]).toEqual({ type: "tool_call", name: "tc-1", args: "completed" });
+  });
+
+  it("agent:update handles status type", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    const agentState = { "a1": { repoName: "r", output: [], status: "busy" } };
+
+    act(() => socket._emit("agent:update", { agentId: "a1", type: "status", content: "ready" }));
+    const updater = setters.setAgents.mock.calls.at(-1)[0];
+    const after = updater(agentState);
+
+    expect(after["a1"].status).toBe("ready");
+  });
+
+  it("agent:update is a no-op for unknown agentId", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    act(() => socket._emit("agent:update", { agentId: "unknown", type: "text", content: "hi" }));
+    const updater = setters.setAgents.mock.calls.at(-1)[0];
+    const state = { "a1": { output: [] } };
+    expect(updater(state)).toBe(state);
+  });
+
+  // -------------------------------------------------------------------------
+  // agent:error
+  // -------------------------------------------------------------------------
+
+  it("agent:error sets status to error and appends error to output", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    const agentState = { "a1": { repoName: "r", output: [{ type: "text", content: "hi" }], status: "busy" } };
+
+    act(() => socket._emit("agent:error", { agentId: "a1", error: "Process crashed" }));
+    const updater = setters.setAgents.mock.calls.at(-1)[0];
+    const after = updater(agentState);
+
+    expect(after["a1"].status).toBe("error");
+    expect(after["a1"].output).toHaveLength(2);
+    expect(after["a1"].output[1]).toEqual({ type: "error", content: "Process crashed" });
+  });
+
+  it("agent:error is a no-op when agent not found", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    act(() => socket._emit("agent:error", { agentId: "missing", error: "fail" }));
+    const updater = setters.setAgents.mock.calls.at(-1)[0];
+    const state = { "a1": {} };
+    expect(updater(state)).toBe(state);
+  });
+
+  // -------------------------------------------------------------------------
+  // agent:permission_request with auto-approval
+  // -------------------------------------------------------------------------
+
+  it("agent:permission_request auto-approves when preset is allow-all", () => {
+    renderHook(() =>
+      useAgentSocket(socket, setters, { permissionPreset: "allow-all" }),
+    );
+
+    act(() =>
+      socket._emit("agent:permission_request", {
+        agentId: "a1",
+        title: "Write file",
+        options: [{ optionId: "opt-1", name: "Allow", kind: "allow_once" }],
+      }),
+    );
+
+    // Should have emitted a permission response, NOT called setAgents
+    expect(socket.emit).toHaveBeenCalledWith("agent:permission_response", {
+      agentId: "a1",
+      optionId: "opt-1",
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // agent:prompt_complete
+  // -------------------------------------------------------------------------
+
+  it("agent:prompt_complete sets agent status to ready", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    act(() => socket._emit("agent:prompt_complete", { agentId: "a1" }));
+    const updater = setters.setAgents.mock.calls.at(-1)[0];
+    const after = updater({ "a1": { status: "busy", output: [] } });
+    expect(after["a1"].status).toBe("ready");
+  });
+
+  // -------------------------------------------------------------------------
+  // graph:updated
+  // -------------------------------------------------------------------------
+
+  it("graph:updated updates dep graph and agent unloadedDeps", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    act(() => socket._emit("graph:updated", {
+      nodes: [{ agentId: "a1" }],
+      edges: [],
+      unloadedDeps: [{ agentId: "a1", missing: ["dep-x"] }],
+    }));
+
+    expect(setters.setDepGraph).toHaveBeenCalled();
+    expect(setters.setUnloadedDeps).toHaveBeenCalledWith({ "a1": ["dep-x"] });
+
+    const agentUpdater = setters.setAgents.mock.calls.at(-1)[0];
+    const after = agentUpdater({ "a1": { repoName: "r", manifestMissing: true } });
+    expect(after["a1"].unloadedDeps).toEqual(["dep-x"]);
+    expect(after["a1"].manifestMissing).toBe(false); // cleared because agentId is in graph nodes
+  });
+
+  // -------------------------------------------------------------------------
+  // graph:manifest_missing
+  // -------------------------------------------------------------------------
+
+  it("graph:manifest_missing sets manifestMissing on the agent", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    act(() => socket._emit("graph:manifest_missing", { agentId: "a1" }));
+    const updater = setters.setAgents.mock.calls.at(-1)[0];
+    const after = updater({ "a1": { repoName: "r" } });
+    expect(after["a1"].manifestMissing).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // mission:updated
+  // -------------------------------------------------------------------------
+
+  it("mission:updated sets mission context", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    act(() => socket._emit("mission:updated", { text: "Build the thing" }));
+    expect(setters.setMissionContext).toHaveBeenCalledWith("Build the thing");
+  });
+
+  // -------------------------------------------------------------------------
+  // session:loaded
+  // -------------------------------------------------------------------------
+
+  it("session:loaded restores settings and clears transient state", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    act(() => socket._emit("session:loaded", {
+      settings: { repoBaseDir: "/restored", reuseExisting: true },
+    }));
+
+    expect(setters.setRepoBaseDir).toHaveBeenCalledWith("/restored");
+    expect(setters.setReuseExisting).toHaveBeenCalledWith(true);
+    expect(setters.setBroadcastResults).toHaveBeenCalledWith(null);
+    expect(setters.setBroadcastProgress).toHaveBeenCalledWith(null);
+    expect(setters.setRoutingPlan).toHaveBeenCalledWith(null);
+    expect(socket.emit).toHaveBeenCalledWith("graph:list");
+  });
+
+  // -------------------------------------------------------------------------
+  // orchestrator:routing_plan
+  // -------------------------------------------------------------------------
+
+  it("orchestrator:routing_plan sets routing plan", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    const plan = { routes: [{ agentId: "a1", task: "docs" }] };
+    act(() => socket._emit("orchestrator:routing_plan", plan));
+    expect(setters.setRoutingPlan).toHaveBeenCalledWith(plan);
+  });
+
+  // -------------------------------------------------------------------------
+  // workitems:updated and broadcast:history
+  // -------------------------------------------------------------------------
+
+  it("workitems:updated calls setWorkItems", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    act(() => socket._emit("workitems:updated", { items: [{ id: 1 }] }));
+    expect(setters.setWorkItems).toHaveBeenCalledWith([{ id: 1 }]);
+  });
+
+  it("broadcast:history calls setBroadcastHistory", () => {
+    renderHook(() => useAgentSocket(socket, setters));
+
+    act(() => socket._emit("broadcast:history", { history: ["h1"] }));
+    expect(setters.setBroadcastHistory).toHaveBeenCalledWith(["h1"]);
+  });
 });

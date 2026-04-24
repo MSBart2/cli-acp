@@ -123,4 +123,63 @@ describe("BroadcastInput", () => {
     fireEvent.submit(screen.getByPlaceholderText(/Send a prompt to all agents/).closest("form"));
     expect(synthArea.value).toBe("");
   });
+
+  // --- @mention targeting ---
+
+  it("shows targeting label when @mention matches a worker", () => {
+    render(<BroadcastInput {...defaults} workerRepoNames={["my-app", "docs"]} />);
+    const textarea = screen.getByPlaceholderText(/Send a prompt to all agents/);
+    fireEvent.change(textarea, { target: { value: "@my-app fix bug" } });
+    // Button should now say "Send to" instead of "Broadcast"
+    expect(screen.getByText(/Send to/)).toBeInTheDocument();
+  });
+
+  it("passes targeted repos to onBroadcast", () => {
+    const onBroadcast = vi.fn();
+    render(<BroadcastInput {...defaults} onBroadcast={onBroadcast} workerRepoNames={["my-app", "docs"]} />);
+    const textarea = screen.getByPlaceholderText(/Send a prompt to all agents/);
+    fireEvent.change(textarea, { target: { value: "@my-app fix it" } });
+    fireEvent.submit(textarea.closest("form"));
+    // Third arg should contain matched repos
+    expect(onBroadcast).toHaveBeenCalledWith("@my-app fix it", undefined, ["my-app"]);
+  });
+
+  it("shows Broadcast label when no @mentions in text", () => {
+    render(<BroadcastInput {...defaults} workerRepoNames={["my-app"]} />);
+    const textarea = screen.getByPlaceholderText(/Send a prompt to all agents/);
+    fireEvent.change(textarea, { target: { value: "no mentions" } });
+    expect(screen.getByText("Broadcast")).toBeInTheDocument();
+  });
+
+  // --- Badge rendering ---
+
+  it("shows error badge when errorCount > 0", () => {
+    render(<BroadcastInput {...defaults} errorCount={2} />);
+    expect(screen.getByText(/2.*error/i)).toBeInTheDocument();
+  });
+
+  it("shows spawning badge when spawningCount > 0 and no errors or busy", () => {
+    render(<BroadcastInput {...defaults} spawningCount={1} />);
+    expect(screen.getByText(/spawning/i)).toBeInTheDocument();
+  });
+
+  // --- Keyboard: Cmd/Ctrl+Enter submits ---
+
+  it("submits on Cmd+Enter", () => {
+    const onBroadcast = vi.fn();
+    render(<BroadcastInput {...defaults} onBroadcast={onBroadcast} />);
+    const textarea = screen.getByPlaceholderText(/Send a prompt to all agents/);
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    expect(onBroadcast).toHaveBeenCalled();
+  });
+
+  it("submits on Ctrl+Enter", () => {
+    const onBroadcast = vi.fn();
+    render(<BroadcastInput {...defaults} onBroadcast={onBroadcast} />);
+    const textarea = screen.getByPlaceholderText(/Send a prompt to all agents/);
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+    expect(onBroadcast).toHaveBeenCalled();
+  });
 });
