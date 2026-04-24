@@ -27,6 +27,6 @@
     "@agentclientprotocol/sdk": "^0.14.1",
     "@playwright/test": "^1.59.1",
     "concurrently": "^9.2.1",
-    "cross-env": "^7.0.3"
+    "cross-env": "^10.1.0"
   }
 }
