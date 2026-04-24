@@ -119,7 +119,7 @@ export default function BroadcastResults({ broadcastResults, onDismiss, onRetryF
             const isError = r.status === "error";
 
             return (
-              <div key={r.agentId}>
+              <div key={r.agentId} data-testid="broadcast-result">
                 {/* Clickable summary row */}
                 <button
                   onClick={() => toggleExpand(r.agentId)}

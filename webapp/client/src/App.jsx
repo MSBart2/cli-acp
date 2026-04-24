@@ -24,6 +24,7 @@ import { useNotifications } from "./hooks/useNotifications";
 import { useAgentSocket } from "./hooks/useAgentSocket.js";
 import { usePermissionPreset } from "./hooks/usePermissionPreset.js";
 import { buildOrchestratorUnloadedDeps } from "./dependencySuggestions";
+import { mergeAgentSnapshot } from "./agentState.js";
 
 const SOCKET_URL = import.meta.env.DEV ? "http://localhost:3001" : undefined;
 const socket = io(SOCKET_URL);
@@ -63,6 +64,8 @@ export default function App() {
     soundEnabled,
     toggleSoundEnabled,
   } = useNotifications(socket);
+
+  const [permissionPreset, setPermissionPreset] = usePermissionPreset();
 
   useEffect(() => {
     socket.on("connect", () => setConnected(true));
@@ -329,10 +332,10 @@ export default function App() {
       if (hasAutoLaunchedRef.current) return;
       hasAutoLaunchedRef.current = true;
       if (orchestratorUrl) {
-        socket.emit("agent:create", { repoUrl: orchestratorUrl, role: "orchestrator", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, model: model || undefined });
+        socket.emit("agent:create", { repoUrl: orchestratorUrl, role: "orchestrator", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, ...(model ? { model } : {}) });
       }
       for (const url of workerUrls || []) {
-        socket.emit("agent:create", { repoUrl: url, role: "worker", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, model: model || undefined });
+        socket.emit("agent:create", { repoUrl: url, role: "worker", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, ...(model ? { model } : {}) });
       }
     });
 

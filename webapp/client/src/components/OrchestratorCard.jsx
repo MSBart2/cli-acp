@@ -231,8 +231,9 @@ export default function OrchestratorCard({
           </>
         )}
 
-        {/* Permission banner */}
-        {!collapsed && agent.pendingPermission && (
+        {/* Permission banner — always visible even when collapsed so the user
+           can unblock a waiting tool call without expanding the card first */}
+        {agent.pendingPermission && (
           <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
             <p className="text-sm text-amber-200 font-medium mb-2">
               {agent.pendingPermission.title}

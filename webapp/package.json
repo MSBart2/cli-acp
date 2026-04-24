@@ -1,6 +1,7 @@
 {
   "name": "acp-orchestrator",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "description": "ACP Agent Orchestrator - Web UI for managing Copilot CLI agents across repositories",
   "scripts": {
@@ -23,8 +24,9 @@
     "test:e2e:report": "playwright show-report --host 0.0.0.0 --port 9323"
   },
   "devDependencies": {
+    "@agentclientprotocol/sdk": "^0.14.1",
     "@playwright/test": "^1.59.1",
-    "concurrently": "^9.2.1"
-    ,"cross-env": "^7.0.3"
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3"
   }
 }

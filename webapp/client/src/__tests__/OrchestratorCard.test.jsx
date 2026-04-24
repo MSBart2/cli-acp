@@ -48,14 +48,14 @@ describe("OrchestratorCard", () => {
       spawnStep: "starting",
     });
     render(<OrchestratorCard agent={agent} {...handlers} />);
+    fireEvent.click(screen.getByTitle("Expand"));
     expect(screen.getByText("cloning")).toBeInTheDocument();
     expect(screen.getByText("starting")).toBeInTheDocument();
     expect(screen.getByText("verifying")).toBeInTheDocument();
   });
 
   it("shows the prompt input when ready", () => {
-    render(<OrchestratorCard agent={makeAgent()} {...handlers} />);
-    expect(
+    render(<OrchestratorCard agent={makeAgent()} {...handlers} />);    fireEvent.click(screen.getByTitle("Expand"));    expect(
       screen.getByPlaceholderText("Send a prompt to the orchestrator…"),
     ).toBeInTheDocument();
   });
@@ -73,6 +73,7 @@ describe("OrchestratorCard", () => {
       output: [{ type: "text", content: "Synthesis complete." }],
     });
     render(<OrchestratorCard agent={agent} {...handlers} />);
+    fireEvent.click(screen.getByTitle("Expand"));
     expect(screen.getByText("Synthesis complete.")).toBeInTheDocument();
   });
 
@@ -120,14 +121,14 @@ describe("OrchestratorCard", () => {
       },
     });
     render(<OrchestratorCard agent={agent} {...handlers} />);
+    fireEvent.click(screen.getByTitle("Expand"));
     expect(screen.getByText("Run git push?")).toBeInTheDocument();
     expect(screen.getByText("Allow")).toBeInTheDocument();
     expect(screen.getByText("Deny")).toBeInTheDocument();
   });
 
   it("shows empty state message when no output", () => {
-    render(<OrchestratorCard agent={makeAgent()} {...handlers} />);
-    expect(
+    render(<OrchestratorCard agent={makeAgent()} {...handlers} />);    fireEvent.click(screen.getByTitle("Expand"));    expect(
       screen.getByText("Waiting for broadcast results from workers…"),
     ).toBeInTheDocument();
   });
@@ -135,8 +136,7 @@ describe("OrchestratorCard", () => {
   it("disables input when agent is busy", () => {
     render(
       <OrchestratorCard agent={makeAgent({ status: "busy" })} {...handlers} />,
-    );
-    const input = screen.getByPlaceholderText(
+    );    fireEvent.click(screen.getByTitle("Expand"));    const input = screen.getByPlaceholderText(
       "Send a prompt to the orchestrator…",
     );
     expect(input).toBeDisabled();
@@ -159,7 +159,7 @@ describe("OrchestratorCard", () => {
         ]}
       />,
     );
-
+    fireEvent.click(screen.getByTitle("Expand"));
     expect(screen.getByText("Unloaded dependency neighbors detected")).toBeInTheDocument();
     expect(screen.getByText(/referenced by api-gateway/i)).toBeInTheDocument();
     fireEvent.click(screen.getAllByText("Load as Worker")[0]);

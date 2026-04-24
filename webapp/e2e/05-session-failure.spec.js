@@ -34,6 +34,9 @@ test.describe("Scenario 5 — Session restore failure", () => {
     test.setTimeout(60_000);
     const page = await browser.newPage();
     app = new AppPage(page);
+    // Brief pause so the server event loop can settle after any previous test's
+    // process cleanup (e.g. mock worker kill) before we attempt socket connect.
+    await page.waitForTimeout(1_000);
     await app.goto();
     await app.stopAllAgents();
   });

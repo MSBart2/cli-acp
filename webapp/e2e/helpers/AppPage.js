@@ -116,9 +116,9 @@ export class AppPage {
     // Use data-testid on the status badge to avoid matching outer wrapper divs
     // that can report hidden despite their content being visible.
     await expect(
-      this.page.locator('[data-testid="orchestrator-status"]', {
-        hasText: "Ready",
-      }),
+      this.page
+        .locator('[data-testid="orchestrator-status"]')
+        .filter({ hasText: "Ready" }),
     ).toBeVisible({ timeout });
   }
 
@@ -133,8 +133,10 @@ export class AppPage {
     // Locate the card by repoPath text, then assert the status badge within it.
     await expect(
       this.page
-        .locator(".card-appear", { hasText: repoPath })
-        .locator('[data-testid="agent-status"]', { hasText: "Ready" }),
+        .locator(".card-appear")
+        .filter({ hasText: repoPath })
+        .locator('[data-testid="agent-status"]')
+        .filter({ hasText: "Ready" }),
     ).toBeVisible({ timeout });
   }
 
@@ -147,8 +149,10 @@ export class AppPage {
   async waitForAgentError(repoPath, { timeout = 90_000 } = {}) {
     await expect(
       this.page
-        .locator(".card-appear", { hasText: repoPath })
-        .locator('[data-testid="agent-status"]', { hasText: "Error" }),
+        .locator(".card-appear")
+        .filter({ hasText: repoPath })
+        .locator('[data-testid="agent-status"]')
+        .filter({ hasText: "Error" }),
     ).toBeVisible({ timeout });
   }
 

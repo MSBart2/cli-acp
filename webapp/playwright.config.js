@@ -59,7 +59,11 @@ export default defineConfig({
     env: {
       ...process.env,
       COPILOT_CLI_PATH: process.env.COPILOT_CLI_PATH ?? "copilot",
+      // Disable auto-launch during e2e tests — prevents the server from spawning
+      // real copilot processes when each test page connects, which would slow the
+      // event loop and cause Socket.IO heartbeat failures (>30s to "Connected").
+      DEFAULT_ORCHESTRATOR_URL: "",
+      DEFAULT_WORKER_URLS: "",
     },
   },
 });
-

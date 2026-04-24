@@ -626,19 +626,19 @@ describe("App config:defaults auto-launch", () => {
     expect(mockSocket.emit).toHaveBeenCalledWith("agent:create", {
       repoUrl: "https://github.com/acme/ops",
       role: "orchestrator",
-      repoBaseDir: "C:\\users\\rmathis\\source",
+      repoBaseDir: "",
       reuseExisting: true,
     });
     expect(mockSocket.emit).toHaveBeenCalledWith("agent:create", {
       repoUrl: "https://github.com/acme/api",
       role: "worker",
-      repoBaseDir: "C:\\users\\rmathis\\source",
+      repoBaseDir: "",
       reuseExisting: true,
     });
     expect(mockSocket.emit).toHaveBeenCalledWith("agent:create", {
       repoUrl: "https://github.com/acme/webapp",
       role: "worker",
-      repoBaseDir: "C:\\users\\rmathis\\source",
+      repoBaseDir: "",
       reuseExisting: true,
     });
   });
