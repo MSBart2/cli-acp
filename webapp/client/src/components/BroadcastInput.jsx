@@ -1,47 +1,8 @@
 import React, { useState, useRef, useCallback } from "react";
-import { Send, Loader2, Radio, ChevronDown, ChevronRight, Sparkles, AtSign } from "lucide-react";
-
-/**
- * Scans `value` backwards from `cursorPos` to detect a `@fragment` being typed.
- * Returns `{ fragment, start }` or `null` if the cursor isn't inside an @mention.
- *
- * @param {string} value
- * @param {number} cursorPos
- * @returns {{ fragment: string, start: number } | null}
- */
-function getMentionAt(value, cursorPos) {
-  const before = value.slice(0, cursorPos);
-  // Match @ preceded by start-of-string or whitespace, followed by word chars.
-  // Group 1 captures the optional preceding whitespace; group 2 is the fragment.
-  const match = before.match(/(^|\s)@([\w-]*)$/);
-  if (!match) return null;
-  // match[2] is the fragment after @; use lastIndexOf to find the @ position
-  return { fragment: match[2], start: before.lastIndexOf("@") };
-}
-
-/**
- * Parses all complete `@repoName` tokens from `text` and cross-references them
- * against the known worker repo names.
- *
- * @param {string} text
- * @param {string[]} workerRepoNames
- * @returns {{ matched: string[], unmatched: string[] }}
- */
-function parseAtMentions(text, workerRepoNames) {
-  const tokens = [...text.matchAll(/@([\w-]+)/g)].map((m) => m[1].toLowerCase());
-  const nameSet = new Set(workerRepoNames.map((n) => n.toLowerCase()));
-  const matched = [];
-  const unmatched = [];
-  for (const tok of tokens) {
-    if (nameSet.has(tok)) {
-      const canonical = workerRepoNames.find((n) => n.toLowerCase() === tok);
-      if (!matched.includes(canonical)) matched.push(canonical);
-    } else if (!unmatched.includes(tok)) {
-      unmatched.push(tok);
-    }
-  }
-  return { matched, unmatched };
-}
+import { Send, Loader2, Radio, ChevronDown, ChevronRight, Sparkles, AtSign, BookOpen } from "lucide-react";
+import { getMentionAt, parseAtMentions } from "../hooks/mentionUtils.js";
+import { usePlaybooks } from "../hooks/usePlaybooks.js";
+import PlaybookPanel from "./PlaybookPanel.jsx";
 
 /**
  * BroadcastInput — sends a prompt to all (or @mentioned) ready agents at once.
@@ -54,16 +15,25 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [showSynthesis, setShowSynthesis] = useState(false);
 
+  // Compose history — arrow-up/down to recall previous broadcasts
+  const historyRef = useRef([]); // ring of past prompts, newest at end
+  const historyIdxRef = useRef(-1); // -1 = not browsing history
+  const draftRef = useRef(""); // saved draft before entering history mode
+
   // @mention autocomplete state
   const [mention, setMention] = useState(null); // { fragment, start } | null
   const [activeIdx, setActiveIdx] = useState(0);
   const textareaRef = useRef(null);
 
+  // Playbook panel
+  const [showPlaybooks, setShowPlaybooks] = useState(false);
+  const { playbooks, savePlaybook, deletePlaybook } = usePlaybooks();
+
   // Suggestions filtered by the partial fragment the user has typed after @
   const suggestions = mention
     ? workerRepoNames.filter((n) =>
-        n.toLowerCase().startsWith(mention.fragment.toLowerCase())
-      )
+      n.toLowerCase().startsWith(mention.fragment.toLowerCase())
+    )
     : [];
 
   // Targeting pills derived from fully-typed @mentions in the text
@@ -108,10 +78,17 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!text.trim() || readyCount === 0 || broadcasting) return;
+    // Save to compose history before sending
+    const trimmed = text.trim();
+    if (historyRef.current[historyRef.current.length - 1] !== trimmed) {
+      historyRef.current.push(trimmed);
+    }
+    historyIdxRef.current = -1;
+    draftRef.current = "";
     // Pass targetedRepos so the server can filter to only those workers.
     // When no @mentions are present, targetedRepos is empty and the server broadcasts to all.
     onBroadcast(
-      text.trim(),
+      trimmed,
       synthesisInstructions.trim() || undefined,
       targetedRepos.length > 0 ? targetedRepos : undefined,
     );
@@ -143,6 +120,36 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
         return;
       }
     }
+    // Arrow-up/down compose history (only when caret is at start/end of single-line content)
+    if (e.key === "ArrowUp" && !mention) {
+      const history = historyRef.current;
+      if (history.length === 0) return;
+      e.preventDefault();
+      if (historyIdxRef.current === -1) {
+        // Save current draft before entering history
+        draftRef.current = text;
+        historyIdxRef.current = history.length - 1;
+      } else if (historyIdxRef.current > 0) {
+        historyIdxRef.current -= 1;
+      }
+      setText(history[historyIdxRef.current]);
+      setMention(null);
+      return;
+    }
+    if (e.key === "ArrowDown" && historyIdxRef.current !== -1) {
+      e.preventDefault();
+      const history = historyRef.current;
+      if (historyIdxRef.current < history.length - 1) {
+        historyIdxRef.current += 1;
+        setText(history[historyIdxRef.current]);
+      } else {
+        // Return to the draft
+        historyIdxRef.current = -1;
+        setText(draftRef.current);
+      }
+      setMention(null);
+      return;
+    }
     // Cmd/Ctrl+Enter to send (regular Enter creates newlines)
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -156,38 +163,38 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
   const badge =
     errorCount > 0
       ? {
-          pill: "bg-red-950/60 border-red-500/25 text-red-300",
-          dot: "bg-red-400",
-          ping: false,
-          label: `${errorCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} errored`,
-        }
+        pill: "bg-red-950/60 border-red-500/25 text-red-300",
+        dot: "bg-red-400",
+        ping: false,
+        label: `${errorCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} errored`,
+      }
       : broadcasting || busyCount > 0
-      ? {
+        ? {
           pill: "bg-amber-950/60 border-amber-500/25 text-amber-300",
           dot: "bg-amber-400",
           ping: true,
           label: `${busyCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} busy`,
         }
-      : spawningCount > 0
-      ? {
-          pill: "bg-purple-950/60 border-purple-500/25 text-purple-300",
-          dot: "bg-purple-400",
-          ping: true,
-          label: `${spawningCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} spawning`,
-        }
-      : {
-          pill: "bg-emerald-950/60 border-emerald-500/25 text-emerald-300",
-          dot: "bg-emerald-400",
-          ping: readyCount > 0,
-          label: `${readyCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} ready`,
-        };
+        : spawningCount > 0
+          ? {
+            pill: "bg-purple-950/60 border-purple-500/25 text-purple-300",
+            dot: "bg-purple-400",
+            ping: true,
+            label: `${spawningCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} spawning`,
+          }
+          : {
+            pill: "bg-emerald-950/60 border-emerald-500/25 text-emerald-300",
+            dot: "bg-emerald-400",
+            ping: readyCount > 0,
+            label: `${readyCount} of ${totalCount} agent${totalCount !== 1 ? "s" : ""} ready`,
+          };
 
   const sendLabel = isTargeted
     ? `Send to ${targetedRepos.length} worker${targetedRepos.length !== 1 ? "s" : ""}`
     : "Broadcast";
 
   return (
-    <div className="relative rounded-xl p-[1px] bg-gradient-to-r from-teal-500/40 via-blue-500/40 to-purple-500/40">
+    <div data-testid="broadcast-panel" className="relative rounded-xl p-[1px] bg-gradient-to-r from-teal-500/40 via-blue-500/40 to-purple-500/40">
       <div className="rounded-xl bg-white/[0.03] backdrop-blur-xl p-5">
         <div className="flex items-center gap-2 mb-3">
           <Radio className="w-4 h-4 text-teal-400" />
@@ -232,11 +239,10 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
                         e.preventDefault();
                         applySuggestion(name);
                       }}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm cursor-pointer transition-colors ${
-                        i === activeIdx
-                          ? "bg-teal-500/20 text-teal-300"
-                          : "text-gray-300 hover:bg-white/5"
-                      }`}
+                      className={`flex items-center gap-2 px-4 py-2 text-sm cursor-pointer transition-colors ${i === activeIdx
+                        ? "bg-teal-500/20 text-teal-300"
+                        : "text-gray-300 hover:bg-white/5"
+                        }`}
                     >
                       <AtSign className="w-3.5 h-3.5 opacity-50" />
                       {name}
@@ -246,8 +252,36 @@ export default function BroadcastInput({ onBroadcast, readyCount, totalCount, bu
               )}
             </div>
 
+            {/* Playbook button + panel */}
+            <div className="relative self-end">
+              <button
+                type="button"
+                data-testid="playbook-toggle"
+                onClick={() => setShowPlaybooks((v) => !v)}
+                title="Saved playbooks"
+                className={`flex items-center gap-1.5 px-3 py-3 rounded-lg text-sm border transition-all ${
+                  showPlaybooks
+                    ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                    : "bg-white/5 border-white/10 text-gray-400 hover:text-gray-200 hover:bg-white/10"
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+              </button>
+              {showPlaybooks && (
+                <PlaybookPanel
+                  playbooks={playbooks}
+                  currentText={text}
+                  onLoad={setText}
+                  onSave={savePlaybook}
+                  onDelete={deletePlaybook}
+                  onClose={() => setShowPlaybooks(false)}
+                />
+              )}
+            </div>
+
             <button
               type="submit"
+              data-testid="broadcast-submit"
               disabled={!text.trim() || !canSend || (isTargeted && targetedRepos.length === 0)}
               className="self-end flex items-center gap-2 px-5 py-3 rounded-lg bg-gradient-to-r from-teal-600 to-blue-600 text-white font-medium hover:from-teal-500 hover:to-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
             >

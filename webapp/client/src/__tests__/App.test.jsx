@@ -59,7 +59,8 @@ vi.mock("../hooks/useNotifications", () => ({
 vi.mock("../components/Header", () => ({
   default: ({ connected, repoBaseDir, reuseExisting }) => (
     <div data-testid="header">
-      connected:{String(connected)};base:{repoBaseDir};reuse:{String(reuseExisting)}
+      connected:{String(connected)};base:{repoBaseDir};reuse:
+      {String(reuseExisting)}
     </div>
   ),
 }));
@@ -96,7 +97,13 @@ vi.mock("../components/AgentCard", () => ({
         </button>
       )}
       {agent.unloadedDeps?.[0] && (
-        <button onClick={() => onLoadWorker(`https://github.com/acme/${agent.unloadedDeps[0].repoName}.git`)}>
+        <button
+          onClick={() =>
+            onLoadWorker(
+              `https://github.com/acme/${agent.unloadedDeps[0].repoName}.git`,
+            )
+          }
+        >
           load-worker
         </button>
       )}
@@ -108,7 +115,11 @@ vi.mock("../components/BroadcastInput", () => ({
   default: ({ onBroadcast, broadcasting }) => (
     <div data-testid="broadcast-input">
       <div>broadcasting:{String(broadcasting)}</div>
-      <button onClick={() => onBroadcast("update downstream contract", "summarize it", ["webapp"])}>
+      <button
+        onClick={() =>
+          onBroadcast("update downstream contract", "summarize it", ["webapp"])
+        }
+      >
         start-broadcast
       </button>
     </div>
@@ -127,7 +138,9 @@ vi.mock("../components/DependencyGraph", () => ({
   default: ({ graph, onRefresh }) => (
     <div>
       <div data-testid="dependency-graph">
-        {graph ? `nodes:${graph.nodes.length};edges:${graph.edges.length}` : "no-graph"}
+        {graph
+          ? `nodes:${graph.nodes.length};edges:${graph.edges.length}`
+          : "no-graph"}
       </div>
       <button onClick={onRefresh}>refresh-graph</button>
     </div>
@@ -149,7 +162,9 @@ vi.mock("../components/RoutingPlanPanel", () => ({
       <div data-testid="routing-plan">
         <div>{plan.sourceRepoName}</div>
         <div>routes:{plan.routes.length}</div>
-        <button onClick={() => onApprove(plan.planId, plan.routes)}>approve-plan</button>
+        <button onClick={() => onApprove(plan.planId, plan.routes)}>
+          approve-plan
+        </button>
         <button onClick={() => onCancel(plan.planId)}>cancel-plan</button>
       </div>
     ) : null,
@@ -213,16 +228,22 @@ describe("App dependency workflows", () => {
   it("hydrates dependency state from graph events and clears stale flags via agent:snapshot", () => {
     render(<App />);
 
-    emitSocket("agent:created", buildAgent({
-      agentId: "orch-1",
-      repoName: "ops",
-      role: "orchestrator",
-    }));
-    emitSocket("agent:created", buildAgent({
-      agentId: "worker-1",
-      repoName: "api",
-      manifest: { dependsOn: ["library"], dependedBy: [] },
-    }));
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "orch-1",
+        repoName: "ops",
+        role: "orchestrator",
+      }),
+    );
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "worker-1",
+        repoName: "api",
+        manifest: { dependsOn: ["library"], dependedBy: [] },
+      }),
+    );
 
     emitSocket("graph:manifest_missing", { agentId: "worker-1" });
     emitSocket("graph:unloaded_deps", {
@@ -250,24 +271,37 @@ describe("App dependency workflows", () => {
   it("clears stale missing-manifest and unloaded-dependency flags when graph state recovers", () => {
     render(<App />);
 
-    emitSocket("agent:created", buildAgent({
-      agentId: "orch-1",
-      repoName: "ops",
-      role: "orchestrator",
-    }));
-    emitSocket("agent:created", buildAgent({
-      agentId: "worker-1",
-      repoName: "api",
-      manifestMissing: true,
-      unloadedDeps: [{ repoName: "webapp", direction: "downstream" }],
-    }));
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "orch-1",
+        repoName: "ops",
+        role: "orchestrator",
+      }),
+    );
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "worker-1",
+        repoName: "api",
+        manifestMissing: true,
+        unloadedDeps: [{ repoName: "webapp", direction: "downstream" }],
+      }),
+    );
 
     const workerCard = screen.getByTestId("agent-worker-1");
     expect(workerCard).toHaveTextContent("manifestMissing:true");
     expect(workerCard).toHaveTextContent("unloaded:1");
 
     emitSocket("graph:updated", {
-      nodes: [{ agentId: "worker-1", repoName: "api", role: "api", techStack: ["node"] }],
+      nodes: [
+        {
+          agentId: "worker-1",
+          repoName: "api",
+          role: "api",
+          techStack: ["node"],
+        },
+      ],
       edges: [],
       warnings: [],
       unloadedDeps: [],
@@ -280,28 +314,37 @@ describe("App dependency workflows", () => {
   it("emits manifest creation and load-worker actions for dependency recovery flows", () => {
     render(<App />);
 
-    emitSocket("agent:created", buildAgent({
-      agentId: "orch-1",
-      repoName: "ops",
-      role: "orchestrator",
-    }));
-    emitSocket("agent:created", buildAgent({
-      agentId: "worker-1",
-      repoName: "api",
-      manifestMissing: true,
-      unloadedDeps: [{ repoName: "webapp", direction: "downstream" }],
-    }));
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "orch-1",
+        repoName: "ops",
+        role: "orchestrator",
+      }),
+    );
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "worker-1",
+        repoName: "api",
+        manifestMissing: true,
+        unloadedDeps: [{ repoName: "webapp", direction: "downstream" }],
+      }),
+    );
 
     fireEvent.click(screen.getByText("create-manifest"));
-    expect(mockSocket.emit).toHaveBeenCalledWith("orchestrator:create_manifest", {
-      agentId: "worker-1",
-    });
+    expect(mockSocket.emit).toHaveBeenCalledWith(
+      "orchestrator:create_manifest",
+      {
+        agentId: "worker-1",
+      },
+    );
 
     fireEvent.click(screen.getByText("load-worker"));
     expect(mockSocket.emit).toHaveBeenCalledWith("agent:create", {
       repoUrl: "https://github.com/acme/webapp.git",
       role: "worker",
-      repoBaseDir: "C:\\users\\rmathis\\source",
+      repoBaseDir: "",
       reuseExisting: true,
       model: undefined,
     });
@@ -310,16 +353,22 @@ describe("App dependency workflows", () => {
   it("applies restored session settings so follow-up worker loads use the restored values", () => {
     render(<App />);
 
-    emitSocket("agent:created", buildAgent({
-      agentId: "orch-1",
-      repoName: "ops",
-      role: "orchestrator",
-    }));
-    emitSocket("agent:created", buildAgent({
-      agentId: "worker-1",
-      repoName: "api",
-      unloadedDeps: [{ repoName: "webapp", direction: "downstream" }],
-    }));
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "orch-1",
+        repoName: "ops",
+        role: "orchestrator",
+      }),
+    );
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "worker-1",
+        repoName: "api",
+        unloadedDeps: [{ repoName: "webapp", direction: "downstream" }],
+      }),
+    );
 
     emitSocket("session:loaded", {
       name: "saved-session",
@@ -346,26 +395,37 @@ describe("App dependency workflows", () => {
   it("routes approval actions back to the server and marks downstream workers as impact-checking", () => {
     render(<App />);
 
-    emitSocket("agent:created", buildAgent({
-      agentId: "orch-1",
-      repoName: "ops",
-      role: "orchestrator",
-    }));
-    emitSocket("agent:created", buildAgent({
-      agentId: "worker-api",
-      repoName: "api",
-    }));
-    emitSocket("agent:created", buildAgent({
-      agentId: "worker-web",
-      repoName: "webapp",
-    }));
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "orch-1",
+        repoName: "ops",
+        role: "orchestrator",
+      }),
+    );
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "worker-api",
+        repoName: "api",
+      }),
+    );
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "worker-web",
+        repoName: "webapp",
+      }),
+    );
 
     emitSocket("orchestrator:routing_plan", {
       planId: "plan-1",
       sourceAgentId: "worker-api",
       sourceRepoName: "api",
       originalPromptText: "update contract",
-      routes: [{ repoName: "webapp", promptText: "adjust UI for new contract" }],
+      routes: [
+        { repoName: "webapp", promptText: "adjust UI for new contract" },
+      ],
     });
 
     emitSocket("agent:impact_checking", {
@@ -374,34 +434,52 @@ describe("App dependency workflows", () => {
     });
 
     expect(screen.getByTestId("routing-plan")).toHaveTextContent("routes:1");
-    expect(screen.getByTestId("agent-worker-web")).toHaveTextContent("impact:true");
-    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent("impact:undefined");
+    expect(screen.getByTestId("agent-worker-web")).toHaveTextContent(
+      "impact:true",
+    );
+    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent(
+      "impact:undefined",
+    );
 
     fireEvent.click(screen.getByText("approve-plan"));
 
-    expect(mockSocket.emit).toHaveBeenCalledWith("orchestrator:approve_routing_plan", {
-      planId: "plan-1",
-      routes: [{ repoName: "webapp", promptText: "adjust UI for new contract" }],
-    });
+    expect(mockSocket.emit).toHaveBeenCalledWith(
+      "orchestrator:approve_routing_plan",
+      {
+        planId: "plan-1",
+        routes: [
+          { repoName: "webapp", promptText: "adjust UI for new contract" },
+        ],
+      },
+    );
     expect(screen.queryByTestId("routing-plan")).not.toBeInTheDocument();
   });
 
   it("keeps broadcast synthesis flow while supporting targeted worker state changes", () => {
     render(<App />);
 
-    emitSocket("agent:created", buildAgent({
-      agentId: "orch-1",
-      repoName: "ops",
-      role: "orchestrator",
-    }));
-    emitSocket("agent:created", buildAgent({
-      agentId: "worker-api",
-      repoName: "api",
-    }));
-    emitSocket("agent:created", buildAgent({
-      agentId: "worker-web",
-      repoName: "webapp",
-    }));
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "orch-1",
+        repoName: "ops",
+        role: "orchestrator",
+      }),
+    );
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "worker-api",
+        repoName: "api",
+      }),
+    );
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "worker-web",
+        repoName: "webapp",
+      }),
+    );
 
     fireEvent.click(screen.getByText("start-broadcast"));
 
@@ -410,13 +488,24 @@ describe("App dependency workflows", () => {
       synthesisInstructions: "summarize it",
       targetRepoNames: ["webapp"],
     });
-    expect(screen.getByTestId("agent-worker-web")).toHaveTextContent("status:busy");
-    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent("status:ready");
+    expect(screen.getByTestId("agent-worker-web")).toHaveTextContent(
+      "status:busy",
+    );
+    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent(
+      "status:ready",
+    );
 
     emitSocket("agent:broadcast_results", {
       promptText: "update downstream contract",
       timestamp: "2026-03-18T00:00:00.000Z",
-      results: [{ agentId: "worker-web", repoName: "webapp", status: "completed", output: "done" }],
+      results: [
+        {
+          agentId: "worker-web",
+          repoName: "webapp",
+          status: "completed",
+          output: "done",
+        },
+      ],
     });
     emitSocket("graph:updated", {
       nodes: [{ agentId: "worker-api", repoName: "api" }],
@@ -425,9 +514,15 @@ describe("App dependency workflows", () => {
     });
     emitSocket("agent:prompt_all_complete");
 
-    expect(screen.getByTestId("broadcast-results")).toHaveTextContent("results:1");
-    expect(screen.getByTestId("dependency-graph")).toHaveTextContent("nodes:1;edges:1");
-    expect(screen.getByTestId("broadcast-input")).toHaveTextContent("broadcasting:false");
+    expect(screen.getByTestId("broadcast-results")).toHaveTextContent(
+      "results:1",
+    );
+    expect(screen.getByTestId("dependency-graph")).toHaveTextContent(
+      "nodes:1;edges:1",
+    );
+    expect(screen.getByTestId("broadcast-input")).toHaveTextContent(
+      "broadcasting:false",
+    );
 
     fireEvent.click(screen.getByText("refresh-graph"));
     expect(mockSocket.emit).toHaveBeenCalledWith("graph:list");
@@ -436,13 +531,18 @@ describe("App dependency workflows", () => {
   it("renders restored worker cards even when no orchestrator is present", () => {
     render(<App />);
 
-    emitSocket("agent:created", buildAgent({
-      agentId: "worker-api",
-      repoName: "api",
-      status: "stopped",
-    }));
+    emitSocket(
+      "agent:created",
+      buildAgent({
+        agentId: "worker-api",
+        repoName: "api",
+        status: "stopped",
+      }),
+    );
 
-    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent("status:stopped");
+    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent(
+      "status:stopped",
+    );
     expect(screen.getByTestId("repo-input")).toBeInTheDocument();
   });
 
@@ -459,20 +559,31 @@ describe("App dependency workflows", () => {
 
     expect(mockSocket.emit).toHaveBeenCalledWith("graph:list");
 
-    emitSocket("agent:snapshot", buildAgent({
-      agentId: "worker-api",
-      repoName: "api",
-      status: "stopped",
-    }));
+    emitSocket(
+      "agent:snapshot",
+      buildAgent({
+        agentId: "worker-api",
+        repoName: "api",
+        status: "stopped",
+      }),
+    );
 
-    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent("status:stopped");
+    expect(screen.getByTestId("agent-worker-api")).toHaveTextContent(
+      "status:stopped",
+    );
   });
 
   it("surfaces restored broadcast history and work items for history-only sessions", () => {
     render(<App />);
 
     emitSocket("workitems:updated", {
-      items: [{ url: "https://github.com/acme/api/issues/1", type: "issue", number: 1 }],
+      items: [
+        {
+          url: "https://github.com/acme/api/issues/1",
+          type: "issue",
+          number: 1,
+        },
+      ],
     });
     emitSocket("broadcast:history", {
       history: [
@@ -484,8 +595,12 @@ describe("App dependency workflows", () => {
       ],
     });
 
-    expect(screen.getByTestId("work-item-tracker")).toHaveTextContent("items:1");
-    expect(screen.getByTestId("broadcast-history")).toHaveTextContent("history:1");
+    expect(screen.getByTestId("work-item-tracker")).toHaveTextContent(
+      "items:1",
+    );
+    expect(screen.getByTestId("broadcast-history")).toHaveTextContent(
+      "history:1",
+    );
 
     fireEvent.click(screen.getByText("dismiss-work-items"));
     expect(screen.queryByTestId("work-item-tracker")).not.toBeInTheDocument();

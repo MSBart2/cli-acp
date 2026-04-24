@@ -18,6 +18,8 @@ export default function SessionControl({ socket }) {
   const [saveInput, setSaveInput] = useState("");
   // Tracks which session id is in the "confirm delete" state
   const [pendingDelete, setPendingDelete] = useState(null);
+  // Inline error message when a session load/restore fails
+  const [sessionError, setSessionError] = useState(null);
   const deleteTimerRef = useRef(null);
   const saveInputRef = useRef(null);
 
@@ -32,7 +34,12 @@ export default function SessionControl({ socket }) {
 
     socket.on("session:loaded", ({ name }) => {
       setCurrentSessionName(name);
+      setSessionError(null);
       setIsOpen(false);
+    });
+
+    socket.on("session:error", ({ message }) => {
+      setSessionError(message);
     });
 
     socket.emit("session:list");
@@ -40,6 +47,7 @@ export default function SessionControl({ socket }) {
     return () => {
       socket.off("session:list");
       socket.off("session:loaded");
+      socket.off("session:error");
     };
   }, [socket]);
 
@@ -85,6 +93,7 @@ export default function SessionControl({ socket }) {
       {/* Current session trigger + auto-saved indicator */}
       <div className="flex items-center gap-2">
         <button
+          data-testid="session-trigger"
           onClick={() => { socket.emit("session:list"); setIsOpen((o) => !o); }}
           className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-md hover:bg-white/10 transition-colors text-xs text-gray-300"
         >
@@ -100,6 +109,22 @@ export default function SessionControl({ socket }) {
 
       {isOpen && (
         <div className="absolute right-0 top-full mt-2 w-72 bg-[#0a0a0a] border border-white/10 rounded-lg shadow-xl backdrop-blur-xl z-50 p-2 max-h-96 overflow-y-auto">
+          {/* Session error banner */}
+          {sessionError && (
+            <div
+              data-testid="session-restore-error"
+              className="flex items-start gap-2 mb-2 px-2 py-1.5 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-400"
+            >
+              <span className="flex-1">{sessionError}</span>
+              <button
+                onClick={() => setSessionError(null)}
+                className="shrink-0 text-red-400/60 hover:text-red-400 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
           {/* Header: inline save input or "Save as…" button */}
           <div className="flex items-center justify-between mb-2 px-2">
             <span className="text-xs font-semibold text-gray-400">Saved Sessions</span>
@@ -142,7 +167,7 @@ export default function SessionControl({ socket }) {
                 const confirming = pendingDelete === s.id;
                 const { agentCount = 0, workItemCount = 0, broadcastCount = 0 } = s.summary ?? {};
                 return (
-                  <div key={s.id} className="group/item flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded transition-colors">
+                  <div key={s.id} data-testid="session-item" className="group/item flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded transition-colors">
                     {/* Session name + metadata pills */}
                     <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
                       <span className="text-xs text-gray-300 truncate">{s.name}</span>
@@ -177,11 +202,10 @@ export default function SessionControl({ socket }) {
                       </button>
                       <button
                         onClick={() => handleDeleteClick(s)}
-                        className={`p-1 rounded transition-colors ${
-                          confirming
-                            ? "bg-red-500/40 text-red-300 animate-pulse"
-                            : "bg-red-500/10 text-red-400 hover:bg-red-500/30"
-                        }`}
+                        className={`p-1 rounded transition-colors ${confirming
+                          ? "bg-red-500/40 text-red-300 animate-pulse"
+                          : "bg-red-500/10 text-red-400 hover:bg-red-500/30"
+                          }`}
                         title={confirming ? "Click again to confirm delete" : "Delete session"}
                       >
                         <Trash2 className="w-3 h-3" />

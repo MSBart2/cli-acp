@@ -156,9 +156,12 @@ export function useNotifications(socket) {
     }
 
     function onAgentError(data) {
-      const truncated =
-        data.error?.length > 80 ? `${data.error.slice(0, 80)}…` : data.error;
-      const message = `✗ Agent error: ${data.repoName} — ${truncated}`;
+      const truncated = data.error?.length > 80
+        ? `${data.error.slice(0, 80)}…`
+        : data.error;
+      const message = data.repoName
+        ? `✗ Agent error: ${data.repoName} — ${truncated}`
+        : `✗ Agent error: ${truncated}`;
       toast.error(message);
       showBrowserNotification("Agent Error", message);
       void playSound("error");

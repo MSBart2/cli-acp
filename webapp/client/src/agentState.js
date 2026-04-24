@@ -27,5 +27,7 @@ export function mergeAgentSnapshot(existing = {}, snapshot) {
     unloadedDeps: hasOwn(snapshot, "unloadedDeps") ? snapshot.unloadedDeps : (existing.unloadedDeps ?? []),
     output: existing.output ?? [],
     pendingPermission: existing.pendingPermission ?? null,
+    // Preserve injectedContext — cleared when a new prompt starts, set by agent:context_injected
+    injectedContext: existing.injectedContext ?? null,
   };
 }

@@ -24,8 +24,8 @@ describe("shutdownAgents", () => {
 
     expect(saveCurrentSession).toHaveBeenCalledTimes(1);
     expect(stopAgent).toHaveBeenCalledTimes(2);
-    expect(stopAgent).toHaveBeenNthCalledWith(1, "agent-1", socket, { skipAutoSave: true });
-    expect(stopAgent).toHaveBeenNthCalledWith(2, "agent-2", socket, { skipAutoSave: true });
+    expect(stopAgent).toHaveBeenNthCalledWith(1, "agent-1", socket, {});
+    expect(stopAgent).toHaveBeenNthCalledWith(2, "agent-2", socket, {});
     expect(agents.size).toBe(0);
   });
 
@@ -42,6 +42,6 @@ describe("shutdownAgents", () => {
     });
 
     expect(saveCurrentSession).not.toHaveBeenCalled();
-    expect(stopAgent).toHaveBeenCalledWith("agent-1", null, { skipAutoSave: true });
+    expect(stopAgent).toHaveBeenCalledWith("agent-1", null, {});
   });
 });

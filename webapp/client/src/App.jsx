@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+} from "react";
 import { io } from "socket.io-client";
 import { Terminal } from "lucide-react";
 import { Toaster } from "react-hot-toast";
@@ -15,7 +21,8 @@ import DependencyGraph from "./components/DependencyGraph";
 import MissionContext from "./components/MissionContext";
 import RoutingPlanPanel from "./components/RoutingPlanPanel";
 import { useNotifications } from "./hooks/useNotifications";
-import { mergeAgentSnapshot } from "./agentState";
+import { useAgentSocket } from "./hooks/useAgentSocket.js";
+import { usePermissionPreset } from "./hooks/usePermissionPreset.js";
 import { buildOrchestratorUnloadedDeps } from "./dependencySuggestions";
 
 const SOCKET_URL = import.meta.env.DEV ? "http://localhost:3001" : undefined;
@@ -26,7 +33,11 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResults, setBroadcastResults] = useState(null);
-  const [repoBaseDir, setRepoBaseDir] = useState("C:\\users\\rmathis\\source");
+  // Default to the env-var override, or empty string so the server uses its own
+  // OS-appropriate default (REPO_BASE_DIR, resolved to /tmp/acp-repos on Linux).
+  const [repoBaseDir, setRepoBaseDir] = useState(
+    import.meta.env.VITE_REPO_BASE_DIR ?? "",
+  );
   const [reuseExisting, setReuseExisting] = useState(true);
   const [broadcastProgress, setBroadcastProgress] = useState(null);
   const [workItems, setWorkItems] = useState([]);
@@ -227,18 +238,6 @@ export default function App() {
       socket.emit("mission:get");
     });
 
-    // Auto-launch env-configured repos on first connect
-    socket.on("config:defaults", ({ orchestratorUrl, workerUrls, model }) => {
-      if (hasAutoLaunchedRef.current) return;
-      hasAutoLaunchedRef.current = true;
-      if (orchestratorUrl) {
-        socket.emit("agent:create", { repoUrl: orchestratorUrl, role: "orchestrator", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, model: model || undefined });
-      }
-      for (const url of workerUrls) {
-        socket.emit("agent:create", { repoUrl: url, role: "worker", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, model: model || undefined });
-      }
-    });
-
     // Mission / global context sync
     socket.on("mission:updated", ({ text }) => {
       setMissionContext(text ?? "");
@@ -325,6 +324,18 @@ export default function App() {
       });
     });
 
+    // Auto-launch env-configured repos on first connect
+    socket.on("config:defaults", ({ orchestratorUrl, workerUrls, model }) => {
+      if (hasAutoLaunchedRef.current) return;
+      hasAutoLaunchedRef.current = true;
+      if (orchestratorUrl) {
+        socket.emit("agent:create", { repoUrl: orchestratorUrl, role: "orchestrator", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, model: model || undefined });
+      }
+      for (const url of workerUrls || []) {
+        socket.emit("agent:create", { repoUrl: url, role: "worker", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, model: model || undefined });
+      }
+    });
+
     return () => {
       socket.off("connect");
       socket.off("disconnect");
@@ -393,9 +404,12 @@ export default function App() {
     socket.emit("orchestrator:create_manifest", { agentId });
   }, []);
 
-  const handleLoadWorker = useCallback((url) => {
-    if (url) handleLaunchAgent(url, "worker");
-  }, [handleLaunchAgent]);
+  const handleLoadWorker = useCallback(
+    (url) => {
+      if (url) handleLaunchAgent(url, "worker");
+    },
+    [handleLaunchAgent],
+  );
 
   const handleRefreshGraph = useCallback(() => {
     socket.emit("graph:list");
@@ -416,30 +430,42 @@ export default function App() {
     socket.emit("mission:set", { text });
   }, []);
 
-  /** Fan-out: send the same prompt to every ready agent at once, or only to @mentioned ones */  const handleBroadcastPrompt = useCallback((text, synthesisInstructions, targetRepoNames) => {
-    setBroadcasting(true);
-    // Clear previous results when a new broadcast starts
-    setBroadcastResults(null);
-    socket.emit("agent:prompt_all", { text, synthesisInstructions, targetRepoNames });
+  /** Fan-out: send the same prompt to every ready agent at once, or only to @mentioned ones */
+  const handleBroadcastPrompt =
+    useCallback((text, synthesisInstructions, targetRepoNames) => {
+      setBroadcasting(true);
+      // Clear previous results when a new broadcast starts
+      setBroadcastResults(null);
+      socket.emit("agent:prompt_all", {
+        text,
+        synthesisInstructions,
+        targetRepoNames,
+      });
 
-    // Optimistically mark targeted (or all, if no targeting) ready workers as busy
-    const targetSet = targetRepoNames?.length
-      ? new Set(targetRepoNames.map((n) => n.toLowerCase()))
-      : null;
-    setAgents((prev) => {
-      const next = { ...prev };
-      for (const id of Object.keys(next)) {
-        const a = next[id];
-        if (
-          a.status === "ready" &&
-          a.role !== "orchestrator" &&
-          (!targetSet || targetSet.has(a.repoName.toLowerCase()))
-        ) {
-          next[id] = { ...a, status: "busy" };
+      // Optimistically mark targeted (or all, if no targeting) ready workers as busy
+      const targetSet = targetRepoNames?.length
+        ? new Set(targetRepoNames.map((n) => n.toLowerCase()))
+        : null;
+      setAgents((prev) => {
+        const next = { ...prev };
+        for (const id of Object.keys(next)) {
+          const a = next[id];
+          if (
+            a.status === "ready" &&
+            a.role !== "orchestrator" &&
+            (!targetSet || targetSet.has(a.repoName.toLowerCase()))
+          ) {
+            next[id] = { ...a, status: "busy" };
+          }
         }
-      }
-      return next;
-    });
+        return next;
+      });
+    }, []);
+
+  /** Retry the failed agents from the last broadcast wave */
+  const handleRetryFailed = useCallback(() => {
+    setBroadcasting(true);
+    socket.emit("agent:prompt_retry_failed");
   }, []);
 
   const agentList = Object.values(agents);
@@ -453,11 +479,14 @@ export default function App() {
   const readyCount = workers.filter((a) => a.status === "ready").length;
   const busyCount = workers.filter((a) => a.status === "busy").length;
   const errorCount = workers.filter((a) => a.status === "error").length;
-  const spawningCount = workers.filter((a) => ["spawning", "initializing"].includes(a.status)).length;
+  const spawningCount = workers.filter((a) =>
+    ["spawning", "initializing"].includes(a.status),
+  ).length;
   const hasOrchestrator = Boolean(orchestrator);
   const showWorkerSection =
     workers.length > 0 ||
-    (orchestrator && !["spawning", "initializing"].includes(orchestrator.status));
+    (orchestrator &&
+      !["spawning", "initializing"].includes(orchestrator.status));
 
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
@@ -473,7 +502,7 @@ export default function App() {
             fontSize: "0.8125rem",
           },
           success: { iconTheme: { primary: "#a78bfa", secondary: "#0f0f19" } },
-          error:   { iconTheme: { primary: "#f87171", secondary: "#0f0f19" } },
+          error: { iconTheme: { primary: "#f87171", secondary: "#0f0f19" } },
         }}
       />
       {/* Subtle radial glow behind the page content for depth */}
@@ -494,13 +523,18 @@ export default function App() {
           onRequestBrowserPermission={requestBrowserPermission}
           soundEnabled={soundEnabled}
           onToggleSoundEnabled={toggleSoundEnabled}
+          permissionPreset={permissionPreset}
+          onPermissionPresetChange={setPermissionPreset}
         />
 
         <main className="w-full px-4 sm:px-6 lg:px-8 py-8 space-y-6">
           <MissionContext value={missionContext} onChange={handleMissionChange} />
           {/* ── Orchestrator section ── always first */}
           {!orchestrator && (
-            <OrchestratorInput onLaunch={handleLaunchAgent} connected={connected} />
+            <OrchestratorInput
+              onLaunch={handleLaunchAgent}
+              connected={connected}
+            />
           )}
           {orchestrator && (
             <OrchestratorCard
@@ -561,6 +595,7 @@ export default function App() {
                 <BroadcastResults
                   broadcastResults={broadcastResults}
                   onDismiss={() => setBroadcastResults(null)}
+                  onRetryFailed={handleRetryFailed}
                 />
               )}
             </div>
@@ -581,8 +616,12 @@ export default function App() {
               <div className="inline-flex p-4 rounded-2xl bg-white/[0.03] border border-white/10 mb-5">
                 <Terminal className="w-8 h-8 text-purple-400/60" />
               </div>
-              <p className="text-lg text-gray-300 font-medium">No agents running</p>
-              <p className="text-sm text-gray-500 mt-1">Enter an orchestrator repo URL above to get started.</p>
+              <p className="text-lg text-gray-300 font-medium">
+                No agents running
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                Enter an orchestrator repo URL above to get started.
+              </p>
             </div>
           )}
         </main>

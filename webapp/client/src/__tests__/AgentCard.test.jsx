@@ -15,7 +15,7 @@ function makeAgent(overrides = {}) {
   };
 }
 
-const noop = () => {};
+const noop = () => { };
 
 describe("AgentCard", () => {
   it("renders the repo name from the URL", () => {
@@ -157,10 +157,9 @@ describe("AgentCard", () => {
         onPermissionResponse={noop}
       />
     );
-    // Both icon-only buttons have empty accessible names — grab all and
-    // pick the first one (the X / close button in the card header)
-    const buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[0]);
+    // Find the Stop Agent button by its title attribute
+    const stopButton = screen.getByTitle("Stop Agent");
+    fireEvent.click(stopButton);
     expect(stoppedId).toBe("test-agent-1");
   });
 
@@ -197,25 +196,40 @@ describe("AgentCard", () => {
       expect(screen.getByText(/dep.*not loaded/)).toBeInTheDocument();
     });
 
-    it("prefills the suggested repo URL when loading an unloaded dependency", () => {
+    it("prefills the suggested repo URL in the inline input when loading an unloaded dependency", () => {
       const onLoadWorker = vi.fn();
       const agent = makeAgent({
         repoUrl: "https://github.com/myorg/api-gateway",
-        unloadedDeps: [{ repoName: "webapp", direction: "downstream" }],
+        unloadedDeps: [{ repoName: "webapp", direction: "downstream", suggestedUrl: "https://github.com/myorg/webapp" }],
       });
-      vi.stubGlobal("prompt", vi.fn().mockReturnValue("https://github.com/myorg/webapp"));
+
+      render(<AgentCard agent={agent} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} onLoadWorker={onLoadWorker} />);
+
+      // Expand the unloaded deps section
+      fireEvent.click(screen.getByText(/dep.*not loaded/));
+
+      // The inline input should be pre-filled with the suggested URL
+      const input = screen.getByPlaceholderText("Repo URL…");
+      expect(input.value).toBe("https://github.com/myorg/webapp");
+
+      // Clicking "Load as Worker" calls onLoadWorker with the URL
+      fireEvent.click(screen.getByRole("button", { name: /load as worker/i }));
+      expect(onLoadWorker).toHaveBeenCalledWith("https://github.com/myorg/webapp");
+    });
+
+    it("loads the dependency when Enter is pressed in the URL input", () => {
+      const onLoadWorker = vi.fn();
+      const agent = makeAgent({
+        repoUrl: "https://github.com/myorg/api-gateway",
+        unloadedDeps: [{ repoName: "webapp", direction: "downstream", suggestedUrl: "https://github.com/myorg/webapp" }],
+      });
 
       render(<AgentCard agent={agent} onSendPrompt={noop} onStop={noop} onPermissionResponse={noop} onLoadWorker={onLoadWorker} />);
 
       fireEvent.click(screen.getByText(/dep.*not loaded/));
-      fireEvent.click(screen.getByText(/webapp \(downstream\) · Load as Worker/i));
-
-      expect(globalThis.prompt).toHaveBeenCalledWith(
-        "Repo URL for webapp",
-        "https://github.com/myorg/webapp",
-      );
+      const input = screen.getByPlaceholderText("Repo URL…");
+      fireEvent.keyDown(input, { key: "Enter" });
       expect(onLoadWorker).toHaveBeenCalledWith("https://github.com/myorg/webapp");
-      vi.unstubAllGlobals();
     });
 
     it("shows pulsing impact badge when impactChecking is true", () => {

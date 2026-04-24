@@ -8,7 +8,7 @@
  * @param {{
  *   agents: Map<string, unknown>,
  *   saveCurrentSession: () => void,
- *   stopAgent: (agentId: string, socket?: object | null, options?: { skipAutoSave?: boolean }) => void,
+ *   stopAgent: (agentId: string, socket?: object | null, options?: { saveSession?: boolean }) => void,
  *   socket?: object | null,
  *   persistSnapshot?: boolean,
  * }} options
@@ -25,6 +25,6 @@ export function shutdownAgents({
   }
 
   for (const agentId of [...agents.keys()]) {
-    stopAgent(agentId, socket, { skipAutoSave: true });
+    stopAgent(agentId, socket, {});
   }
 }
