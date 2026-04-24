@@ -13,7 +13,7 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.14.1",
     "cors": "^2.8.5",
-    "express": "^4.21.2",
+    "express": "^5.2.1",
     "pino": "^10.3.1",
     "socket.io": "^4.8.1"
   },
