@@ -36,6 +36,14 @@ export default function App() {
   const [unloadedDeps, setUnloadedDeps] = useState({});
   const [missionContext, setMissionContext] = useState("");
   const [routingPlan, setRoutingPlan] = useState(null);
+  // Ensures env-default repos are launched at most once per page load
+  const hasAutoLaunchedRef = useRef(false);
+  // Keep refs in sync so the config:defaults closure always sees current values
+  const repoBseDirRef = useRef(repoBaseDir);
+  const reuseExistingRef = useRef(reuseExisting);
+
+  repoBseDirRef.current = repoBaseDir;
+  reuseExistingRef.current = reuseExisting;
 
   // Toast + browser notifications wired to socket events
   const {
@@ -219,6 +227,18 @@ export default function App() {
       socket.emit("mission:get");
     });
 
+    // Auto-launch env-configured repos on first connect
+    socket.on("config:defaults", ({ orchestratorUrl, workerUrls, model }) => {
+      if (hasAutoLaunchedRef.current) return;
+      hasAutoLaunchedRef.current = true;
+      if (orchestratorUrl) {
+        socket.emit("agent:create", { repoUrl: orchestratorUrl, role: "orchestrator", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, model: model || undefined });
+      }
+      for (const url of workerUrls) {
+        socket.emit("agent:create", { repoUrl: url, role: "worker", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, model: model || undefined });
+      }
+    });
+
     // Mission / global context sync
     socket.on("mission:updated", ({ text }) => {
       setMissionContext(text ?? "");
@@ -329,6 +349,7 @@ export default function App() {
       socket.off("agent:impact_checking");
       socket.off("mission:updated");
       socket.off("session:loaded");
+      socket.off("config:defaults");
     };
   }, []);
 
@@ -475,7 +496,7 @@ export default function App() {
           onToggleSoundEnabled={toggleSoundEnabled}
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        <main className="w-full px-4 sm:px-6 lg:px-8 py-8 space-y-6">
           <MissionContext value={missionContext} onChange={handleMissionChange} />
           {/* ── Orchestrator section ── always first */}
           {!orchestrator && (

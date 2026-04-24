@@ -14,7 +14,13 @@ const SOUND_PATTERNS = {
   ],
   error: [
     { frequency: 440, delay: 0, duration: 0.14, gain: 0.04, type: "triangle" },
-    { frequency: 330, delay: 0.16, duration: 0.18, gain: 0.035, type: "triangle" },
+    {
+      frequency: 330,
+      delay: 0.16,
+      duration: 0.18,
+      gain: 0.035,
+      type: "triangle",
+    },
   ],
 };
 
@@ -42,7 +48,7 @@ function readStoredSoundPreference() {
  */
 export function useNotifications(socket) {
   const [browserPermission, setBrowserPermission] = useState(
-    typeof Notification !== "undefined" ? Notification.permission : "denied"
+    typeof Notification !== "undefined" ? Notification.permission : "denied",
   );
   const [soundEnabled, setSoundEnabled] = useState(readStoredSoundPreference);
   const audioContextRef = useRef(null);
@@ -63,49 +69,58 @@ export function useNotifications(socket) {
     });
   }
 
-  const playSound = useCallback(async (kind) => {
-    if (!soundEnabled) return;
-    const AudioContextCtor =
-      globalThis.AudioContext || globalThis.webkitAudioContext;
-    const pattern = SOUND_PATTERNS[kind];
-    if (!AudioContextCtor || !pattern) return;
+  const playSound = useCallback(
+    async (kind) => {
+      if (!soundEnabled) return;
+      const AudioContextCtor =
+        globalThis.AudioContext || globalThis.webkitAudioContext;
+      const pattern = SOUND_PATTERNS[kind];
+      if (!AudioContextCtor || !pattern) return;
 
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContextCtor();
+      try {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new AudioContextCtor();
+        }
+
+        const context = audioContextRef.current;
+        if (
+          context.state === "suspended" &&
+          typeof context.resume === "function"
+        ) {
+          await context.resume();
+        }
+
+        const startTime = context.currentTime + 0.01;
+        for (const tone of pattern) {
+          const oscillator = context.createOscillator();
+          const gainNode = context.createGain();
+
+          oscillator.type = tone.type || "sine";
+          oscillator.frequency.setValueAtTime(
+            tone.frequency,
+            startTime + tone.delay,
+          );
+          gainNode.gain.setValueAtTime(0.0001, startTime + tone.delay);
+          gainNode.gain.exponentialRampToValueAtTime(
+            tone.gain,
+            startTime + tone.delay + 0.01,
+          );
+          gainNode.gain.exponentialRampToValueAtTime(
+            0.0001,
+            startTime + tone.delay + tone.duration,
+          );
+
+          oscillator.connect(gainNode);
+          gainNode.connect(context.destination);
+          oscillator.start(startTime + tone.delay);
+          oscillator.stop(startTime + tone.delay + tone.duration + 0.02);
+        }
+      } catch {
+        // Browsers may block audio until user interaction; fail quietly.
       }
-
-      const context = audioContextRef.current;
-      if (context.state === "suspended" && typeof context.resume === "function") {
-        await context.resume();
-      }
-
-      const startTime = context.currentTime + 0.01;
-      for (const tone of pattern) {
-        const oscillator = context.createOscillator();
-        const gainNode = context.createGain();
-
-        oscillator.type = tone.type || "sine";
-        oscillator.frequency.setValueAtTime(tone.frequency, startTime + tone.delay);
-        gainNode.gain.setValueAtTime(0.0001, startTime + tone.delay);
-        gainNode.gain.exponentialRampToValueAtTime(
-          tone.gain,
-          startTime + tone.delay + 0.01,
-        );
-        gainNode.gain.exponentialRampToValueAtTime(
-          0.0001,
-          startTime + tone.delay + tone.duration,
-        );
-
-        oscillator.connect(gainNode);
-        gainNode.connect(context.destination);
-        oscillator.start(startTime + tone.delay);
-        oscillator.stop(startTime + tone.delay + tone.duration + 0.02);
-      }
-    } catch {
-      // Browsers may block audio until user interaction; fail quietly.
-    }
-  }, [soundEnabled]);
+    },
+    [soundEnabled],
+  );
 
   const toggleSoundEnabled = useCallback(() => {
     setSoundEnabled((current) => {
@@ -130,7 +145,10 @@ export function useNotifications(socket) {
 
     function onDisconnect() {
       // Use a fixed id so repeated disconnect events don't stack toasts
-      toast.error("Disconnected from server", { id: "disconnect", duration: 0 });
+      toast.error("Disconnected from server", {
+        id: "disconnect",
+        duration: 0,
+      });
     }
 
     function onAgentCreated(data) {
@@ -138,9 +156,8 @@ export function useNotifications(socket) {
     }
 
     function onAgentError(data) {
-      const truncated = data.error?.length > 80
-        ? `${data.error.slice(0, 80)}…`
-        : data.error;
+      const truncated =
+        data.error?.length > 80 ? `${data.error.slice(0, 80)}…` : data.error;
       const message = `✗ Agent error: ${data.repoName} — ${truncated}`;
       toast.error(message);
       showBrowserNotification("Agent Error", message);
@@ -154,10 +171,11 @@ export function useNotifications(socket) {
     }
 
     function onAgentPermissionRequest(data) {
-      toast(`⚡ ${data.repoName} needs permission`, { duration: 5000 });
+      const label = data.repoName || data.agentId?.slice(0, 8) || "Agent";
+      toast(`⚡ ${label} needs permission`, { duration: 15000 });
       showBrowserNotification(
         "Permission needed",
-        `${data.repoName} is waiting for your approval.`
+        `${label} is waiting for your approval.`,
       );
       void playSound("permission");
     }

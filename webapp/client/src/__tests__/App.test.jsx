@@ -491,3 +491,122 @@ describe("App dependency workflows", () => {
     expect(screen.queryByTestId("work-item-tracker")).not.toBeInTheDocument();
   });
 });
+
+describe("App config:defaults auto-launch", () => {
+  beforeEach(() => {
+    mockSocket.reset();
+  });
+
+  it("launches the orchestrator and all workers when both are configured", () => {
+    render(<App />);
+
+    emitSocket("config:defaults", {
+      orchestratorUrl: "https://github.com/acme/ops",
+      workerUrls: [
+        "https://github.com/acme/api",
+        "https://github.com/acme/webapp",
+      ],
+    });
+
+    expect(mockSocket.emit).toHaveBeenCalledWith("agent:create", {
+      repoUrl: "https://github.com/acme/ops",
+      role: "orchestrator",
+      repoBaseDir: "C:\\users\\rmathis\\source",
+      reuseExisting: true,
+    });
+    expect(mockSocket.emit).toHaveBeenCalledWith("agent:create", {
+      repoUrl: "https://github.com/acme/api",
+      role: "worker",
+      repoBaseDir: "C:\\users\\rmathis\\source",
+      reuseExisting: true,
+    });
+    expect(mockSocket.emit).toHaveBeenCalledWith("agent:create", {
+      repoUrl: "https://github.com/acme/webapp",
+      role: "worker",
+      repoBaseDir: "C:\\users\\rmathis\\source",
+      reuseExisting: true,
+    });
+  });
+
+  it("launches only the orchestrator when no workers are configured", () => {
+    render(<App />);
+
+    emitSocket("config:defaults", {
+      orchestratorUrl: "https://github.com/acme/ops",
+      workerUrls: [],
+    });
+
+    const createCalls = mockSocket.emit.mock.calls.filter(
+      ([event]) => event === "agent:create",
+    );
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0][1]).toMatchObject({ role: "orchestrator" });
+  });
+
+  it("launches only workers when the orchestrator URL is null", () => {
+    render(<App />);
+
+    emitSocket("config:defaults", {
+      orchestratorUrl: null,
+      workerUrls: ["https://github.com/acme/api"],
+    });
+
+    const createCalls = mockSocket.emit.mock.calls.filter(
+      ([event]) => event === "agent:create",
+    );
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0][1]).toMatchObject({ role: "worker", repoUrl: "https://github.com/acme/api" });
+  });
+
+  it("emits no agent:create calls when both orchestrator and workers are absent", () => {
+    render(<App />);
+
+    emitSocket("config:defaults", { orchestratorUrl: null, workerUrls: [] });
+
+    expect(mockSocket.emit).not.toHaveBeenCalledWith(
+      "agent:create",
+      expect.anything(),
+    );
+  });
+
+  it("ignores a second config:defaults event — auto-launch is idempotent", () => {
+    render(<App />);
+
+    emitSocket("config:defaults", {
+      orchestratorUrl: "https://github.com/acme/ops",
+      workerUrls: [],
+    });
+    emitSocket("config:defaults", {
+      orchestratorUrl: "https://github.com/acme/ops",
+      workerUrls: ["https://github.com/acme/api"],
+    });
+
+    const createCalls = mockSocket.emit.mock.calls.filter(
+      ([event]) => event === "agent:create",
+    );
+    // Only the first event's orchestrator launch, second event ignored entirely
+    expect(createCalls).toHaveLength(1);
+  });
+
+  it("uses current repoBaseDir and reuseExisting when session:loaded fires before config:defaults", () => {
+    render(<App />);
+
+    // Simulate a session restore updating settings before auto-launch fires
+    emitSocket("session:loaded", {
+      name: "saved-session",
+      settings: { repoBaseDir: "C:\\restored-base", reuseExisting: false },
+    });
+
+    emitSocket("config:defaults", {
+      orchestratorUrl: "https://github.com/acme/ops",
+      workerUrls: [],
+    });
+
+    expect(mockSocket.emit).toHaveBeenCalledWith("agent:create", {
+      repoUrl: "https://github.com/acme/ops",
+      role: "orchestrator",
+      repoBaseDir: "C:\\restored-base",
+      reuseExisting: false,
+    });
+  });
+});

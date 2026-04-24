@@ -16,14 +16,18 @@ Use this when you need a safe but realistic multi-repo workflow:
 
 ## Setup
 
+If your repos are configured in `.env` (`DEFAULT_ORCHESTRATOR_URL` and
+`DEFAULT_WORKER_URLS`), they will launch automatically when the browser
+connects. Otherwise, launch them manually as described in Phase 1 below.
+
 You are responsible for four repositories:
 
-| Repo | Stack | Current doc state |
-| --- | --- | --- |
-| `myorg/api-gateway` | Node.js / Express | README exists but is stale |
-| `myorg/billing-service` | Python / FastAPI | README is missing |
-| `myorg/web-dashboard` | React / Vite / TypeScript | README is decent but incomplete |
-| `myorg/infra-config` | Terraform + Bash | README documents the wrong repo |
+| Repo                    | Stack                     | Current doc state               |
+| ----------------------- | ------------------------- | ------------------------------- |
+| `myorg/api-gateway`     | Node.js / Express         | README exists but is stale      |
+| `myorg/billing-service` | Python / FastAPI          | README is missing               |
+| `myorg/web-dashboard`   | React / Vite / TypeScript | README is decent but incomplete |
+| `myorg/infra-config`    | Terraform + Bash          | README documents the wrong repo |
 
 You also have a coordination repo:
 
@@ -38,6 +42,19 @@ Bring all four repositories up to a consistent documentation standard and keep
 full traceability from discovery to issues to pull requests.
 
 ## Workflow
+
+### Phase 0: Set a session brief (optional)
+
+In the purple bar at the top of the UI, click **Add session brief…** and enter
+standing context that applies to every prompt in this session. Example:
+
+```text
+We are auditing and updating documentation across all repos. READMEs should
+include: purpose, prerequisites, getting started, testing, architecture.
+```
+
+The brief is prepended to every agent prompt automatically — you won't need to
+repeat it.
 
 ### Phase 1: Spawn the orchestrator and workers
 
@@ -93,6 +110,9 @@ Audit". Reference each child issue URL and write the issue map to
 
 This is where the orchestrator becomes more than a summarizer. It turns
 parallel repo work into a durable coordination record.
+
+After this completes, check the **Work Items** panel in the UI — issue URLs
+detected from agent output are captured there automatically for easy reference.
 
 ### Phase 4: Generate README PRs
 
@@ -152,6 +172,10 @@ The scenario is complete when you have:
 3. one parent tracking issue in the coordination repo
 4. one README PR per worker repo
 5. a coordination file that maps issues to PRs
+
+Use the **Session** control in the header to save before closing. This
+preserves the agent roster, work items, and broadcast history so you can
+resume later without re-launching everything.
 
 ## Why this scenario works so well
 

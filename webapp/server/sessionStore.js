@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { consoleLogger } from "./logger.js";
 
 // Store sessions in ~/.acp-orchestrator/sessions
 const SESSIONS_DIR = join(homedir(), ".acp-orchestrator", "sessions");
+const console = consoleLogger;
 
 export function ensureSessionDir() {
   if (!existsSync(SESSIONS_DIR)) {

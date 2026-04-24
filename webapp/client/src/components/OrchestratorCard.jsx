@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { X, Send, Network, Loader2, ChevronDown, ChevronUp, RotateCw } from "lucide-react";
 
 /**
@@ -32,8 +32,15 @@ export default function OrchestratorCard({
   onLoadWorker,
 }) {
   const [input, setInput] = useState("");
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
+  const outputRef = useRef(null);
   const status = statusConfig[agent.status] || statusConfig.initializing;
+
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [agent.output]);
 
   const MAX_VISIBLE = 200;
   const visibleOutput =
@@ -200,7 +207,7 @@ export default function OrchestratorCard({
               </div>
             )}
 
-          <div className="bg-[#0a0a10] rounded-lg border border-white/10 mb-4 max-h-64 overflow-y-auto">
+          <div ref={outputRef} className="bg-[#0a0a10] rounded-lg border border-white/10 mb-4 max-h-64 overflow-y-auto">
             <div className="p-4 space-y-1.5">
               {truncatedCount > 0 && (
                 <p className="text-xs text-gray-600 italic">

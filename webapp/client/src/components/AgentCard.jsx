@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { X, Send, Terminal, GitBranch, Loader2, RotateCw } from "lucide-react";
 import { suggestRepoUrl } from "../dependencySuggestions";
 
@@ -23,7 +23,15 @@ function extractRepoName(url) {
 export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPermissionResponse, onCreateManifest, onLoadWorker }) {
   const [input, setInput] = useState("");
   const [unloadedOpen, setUnloadedOpen] = useState(false);
+  const outputRef = useRef(null);
   const status = statusConfig[agent.status] || statusConfig.initializing;
+
+  // Auto-scroll to bottom whenever output changes
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [agent.output]);
 
   // Only show the last 3 output entries to keep cards compact
   const MAX_VISIBLE = 3;
@@ -143,8 +151,8 @@ export default function AgentCard({ agent, onSendPrompt, onStop, onRestart, onPe
           </div>
         )}
 
-        {/* Output area — slightly taller with better text contrast */}
-        <div className="min-h-[160px] flex-1 overflow-y-auto bg-black/40 px-4 py-3 font-mono text-sm leading-relaxed">
+        {/* Output area — fixed height with scroll so cards don't grow unbounded */}
+        <div ref={outputRef} className="h-64 overflow-y-auto bg-black/40 px-4 py-3 font-mono text-sm leading-relaxed">
           {/* Spawning progress indicator — shows step-by-step status */}
           {agent.status === "spawning" && (
             <div className="flex flex-col items-center justify-center py-6 gap-3">

@@ -16,7 +16,7 @@ export default function Header({
 }) {
   return (
     <header className="border-b border-white/10 bg-white/[0.03] backdrop-blur-xl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
+      <div className="w-full px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
         {/* Logo + title */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 shadow-lg shadow-purple-500/20">

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "scripts/**/*.mjs",
+    "webapp/server/**/*.js",
+    "webapp/client/src/**/*.js",
+    "webapp/client/src/**/*.jsx"
+  ],
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**"
+  ]
+}

@@ -72,6 +72,18 @@ npm run dev
 
 Then open [http://localhost:5173](http://localhost:5173).
 
+### Optional repo-root wrappers
+
+The repository also exposes root-level wrapper scripts so tooling can discover
+the main workflows without needing to know the `webapp/` subdirectory:
+
+```bash
+npm run install:all
+npm run dev
+npm run test
+npm run build
+```
+
 ## Usage
 
 1. **Launch an orchestrator** by entering the coordination repo URL, optionally choosing a Copilot model, and clicking **Launch Orchestrator**.
@@ -181,6 +193,31 @@ When workers reference repos that are not currently loaded, the UI now surfaces 
 cd webapp
 npm test
 ```
+
+Or from the repo root:
+
+```bash
+npm run test
+```
+
+## AgentRC Harness
+
+This repository includes a local AgentRC harness for repeatable readiness and
+AI-tooling maintenance.
+
+```bash
+npm run agentrc:readiness
+npm run agentrc:instructions
+npm run agentrc:mcp
+npm run agentrc:vscode
+npm run agentrc:eval:init
+npm run agentrc:eval
+```
+
+- `agentrc:readiness` writes JSON and HTML reports to `.agentrc/reports/`
+- `agentrc:instructions` refreshes `AGENTS.md`
+- `agentrc:mcp` and `agentrc:vscode` refresh `.vscode` files
+- `agentrc:eval` uses `agentrc.eval.json` and writes the latest JSON result to `.agentrc/reports/`
 
 ## How It Works
 

@@ -1,0 +1,6 @@
+# Replace placeholder owners with the real maintainers for this repository.
+* @TODO-REPO-OWNER
+
+/.github/ @TODO-REPO-OWNER
+/webapp/server/ @TODO-REPO-OWNER
+/webapp/client/ @TODO-REPO-OWNER

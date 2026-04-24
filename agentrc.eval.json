@@ -1,0 +1,49 @@
+{
+  "cases": [
+    {
+      "id": "add-socket-event",
+      "prompt": "Add a new Socket.IO event for a server-driven orchestration action.",
+      "expectation": [
+        "Identify the server event wiring in webapp/server/index.js.",
+        "Update the matching client listener or emitter path in webapp/client/src/App.jsx.",
+        "Call out any tests that should be added or updated."
+      ]
+    },
+    {
+      "id": "new-worker-card-ui",
+      "prompt": "Add a new worker-card UI affordance for agent state.",
+      "expectation": [
+        "Locate the relevant component under webapp/client/src/components/.",
+        "Preserve the existing Tailwind-based glassmorphism styling approach.",
+        "Mention the corresponding client-side test file that should cover the interaction."
+      ]
+    },
+    {
+      "id": "manifest-graph-change",
+      "prompt": "Update dependency-graph behavior after manifest changes.",
+      "expectation": [
+        "Trace the server-side manifest parsing and graph rebuild path.",
+        "Keep agent hydration, graph updates, and unloaded dependency state aligned.",
+        "Reference the integration-style tests that protect this workflow."
+      ]
+    },
+    {
+      "id": "session-persistence-change",
+      "prompt": "Improve how saved sessions are restored or re-spawned.",
+      "expectation": [
+        "Identify session persistence code under webapp/server/sessionStore.js or related files.",
+        "Preserve the distinction between UI restore and live re-spawn behavior.",
+        "Mention tests that validate session lifecycle behavior."
+      ]
+    },
+    {
+      "id": "agentrc-maintenance",
+      "prompt": "Refresh this repo's AI-readiness assets after structural changes.",
+      "expectation": [
+        "Use the repo-level AgentRC harness commands.",
+        "Regenerate AGENTS.md or VS Code AI config when appropriate.",
+        "Re-run readiness and summarize which files explain the repo's conventions."
+      ]
+    }
+  ]
+}

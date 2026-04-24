@@ -1,0 +1,28 @@
+{
+  "name": "cli-acp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Wrapper scripts and AgentRC automation for the ACP Agent Orchestrator repo",
+  "dependencies": {
+    "pino": "^10.3.1"
+  },
+  "scripts": {
+    "install:all": "npm --prefix webapp run install:all",
+    "dev": "npm --prefix webapp run dev",
+    "dev:server": "npm --prefix webapp run dev:server",
+    "dev:client": "npm --prefix webapp run dev:client",
+    "build": "npm --prefix webapp run build",
+    "start": "npm --prefix webapp run start",
+    "test": "npm --prefix webapp run test",
+    "test:server": "npm --prefix webapp run test:server",
+    "test:client": "npm --prefix webapp run test:client",
+    "teardown": "npm --prefix webapp run teardown",
+    "agentrc:readiness": "node scripts/agentrc-harness.mjs readiness",
+    "agentrc:instructions": "node scripts/agentrc-harness.mjs instructions",
+    "agentrc:mcp": "node scripts/agentrc-harness.mjs mcp",
+    "agentrc:vscode": "node scripts/agentrc-harness.mjs vscode",
+    "agentrc:eval:init": "node scripts/agentrc-harness.mjs eval:init",
+    "agentrc:eval": "node scripts/agentrc-harness.mjs eval",
+    "agentrc:refresh": "node scripts/agentrc-harness.mjs refresh"
+  }
+}
