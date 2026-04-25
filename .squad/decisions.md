@@ -107,6 +107,44 @@ Before calling `row.hover()` in the re-spawn restore e2e test, wait for all `[da
 
 ---
 
+### [2026-04-25] Code Review Findings — Critical Items & Verdict
+
+**Author:** Mal (Lead) | **Requested by:** Barton Mathis
+
+Performed comprehensive review of entire codebase: all server files (2449 lines in index.js alone), client components, hooks, utils, tests (424 passing), and documentation.
+
+**Critical Items (must fix):**
+1. Typo in `App.jsx`: `repoBseDirRef` should be `repoBaseDirRef` (line 54). Risk: confusion and potential bug if someone assumes correct spelling introduces a second ref.
+2. Missing early-return guard in `orchestrator:approve_routing_plan` (server/index.js ~1710). If routes is empty after filtering visited repos, early return rather than iterating empty array.
+
+**Important Items (next sprint):**
+1. Incomplete null-safety: `parseRoutingPlan` should guard `text` param; `buildSynthesisPrompt` should guard `results` array
+2. JSDoc coverage gaps: ~40% of server helpers lack proper param/return annotations
+3. Error propagation in `crossPopulateDependedBy`: fire-and-forget async work logs errors but doesn't surface to user
+4. Documentation drift: ARCHITECTURE.md missing components (PlaybookPanel, SessionControl, StatusBadge, OutputLog, RoutingPlanPanel); README missing playbook feature; copilotModels.js lists unsupported model
+
+**Verdict:** Ship-ready with 2 quick fixes. All 424 tests passing. Security posture strong. Recommended priority: fix critical items immediately, defer important items to next sprint.
+
+---
+
+### [2026-04-25] Test Coverage Audit — 71 New Tests Added
+
+**Author:** Simon (Tester) | **Requested by:** Barton Mathis
+
+Reviewed existing test suite (424 tests, all passing) and identified coverage gaps.
+
+**Tests Added (495 total, +71):**
+- `buildEventLogEntry.test.js` — 12 tests for sessionUpdate event type decoding
+- `resolveAutoApproval.test.js` — 24 tests for permission preset auto-selection logic
+- `StatusBadge.test.jsx` — 17 tests for shared component variants (worker/orchestrator)
+- `OutputLog.test.jsx` — 18 tests for output entry rendering (text/tool_call/error)
+
+**Unfilled gaps (out of scope):** `getDirSize` utility, `withTimeout`/`withActivityTimeout` promise wrappers, Socket.IO event handlers (better in E2E), full cascade routing flows.
+
+**Test patterns reinforced:** Use `vi.useFakeTimers()` for timestamp control, query by accessible roles in RTL, AAA structure (Arrange/Act/Assert), always `vi.useRealTimers()` in afterEach.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus
