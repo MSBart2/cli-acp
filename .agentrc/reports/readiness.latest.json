@@ -1,0 +1,399 @@
+{
+  "ok": true,
+  "status": "success",
+  "data": {
+    "repoPath": "C:\\Users\\rmathis\\source\\cli-acp",
+    "generatedAt": "2026-03-23T22:00:36.865Z",
+    "isMonorepo": false,
+    "apps": [
+      {
+        "name": "cli-acp",
+        "path": "C:\\Users\\rmathis\\source\\cli-acp"
+      }
+    ],
+    "pillars": [
+      {
+        "id": "style-validation",
+        "name": "Style & Validation",
+        "passed": 2,
+        "total": 2,
+        "passRate": 1
+      },
+      {
+        "id": "build-system",
+        "name": "Build System",
+        "passed": 2,
+        "total": 2,
+        "passRate": 1
+      },
+      {
+        "id": "testing",
+        "name": "Testing",
+        "passed": 1,
+        "total": 1,
+        "passRate": 1
+      },
+      {
+        "id": "documentation",
+        "name": "Documentation",
+        "passed": 2,
+        "total": 2,
+        "passRate": 1
+      },
+      {
+        "id": "dev-environment",
+        "name": "Dev Environment",
+        "passed": 2,
+        "total": 2,
+        "passRate": 1
+      },
+      {
+        "id": "code-quality",
+        "name": "Code Quality",
+        "passed": 1,
+        "total": 1,
+        "passRate": 1
+      },
+      {
+        "id": "observability",
+        "name": "Observability",
+        "passed": 1,
+        "total": 1,
+        "passRate": 1
+      },
+      {
+        "id": "security-governance",
+        "name": "Security & Governance",
+        "passed": 4,
+        "total": 4,
+        "passRate": 1
+      },
+      {
+        "id": "ai-tooling",
+        "name": "AI Tooling",
+        "passed": 5,
+        "total": 5,
+        "passRate": 1
+      }
+    ],
+    "levels": [
+      {
+        "level": 1,
+        "name": "Functional",
+        "passed": 7,
+        "total": 7,
+        "passRate": 1,
+        "achieved": true
+      },
+      {
+        "level": 2,
+        "name": "Documented",
+        "passed": 8,
+        "total": 8,
+        "passRate": 1,
+        "achieved": true
+      },
+      {
+        "level": 3,
+        "name": "Standardized",
+        "passed": 5,
+        "total": 5,
+        "passRate": 1,
+        "achieved": true
+      },
+      {
+        "level": 4,
+        "name": "Optimized",
+        "passed": 0,
+        "total": 0,
+        "passRate": 0,
+        "achieved": false
+      },
+      {
+        "level": 5,
+        "name": "Autonomous",
+        "passed": 0,
+        "total": 0,
+        "passRate": 0,
+        "achieved": false
+      }
+    ],
+    "achievedLevel": 3,
+    "criteria": [
+      {
+        "id": "lint-config",
+        "title": "Linting configured",
+        "pillar": "style-validation",
+        "level": 1,
+        "scope": "repo",
+        "impact": "high",
+        "effort": "low",
+        "status": "pass",
+        "evidence": [
+          "eslint.config.js",
+          ".eslintrc",
+          "biome.json",
+          ".prettierrc"
+        ]
+      },
+      {
+        "id": "typecheck-config",
+        "title": "Type checking configured",
+        "pillar": "style-validation",
+        "level": 2,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "low",
+        "status": "pass",
+        "evidence": [
+          "tsconfig.json",
+          "pyproject.toml",
+          "mypy.ini"
+        ]
+      },
+      {
+        "id": "build-script",
+        "title": "Build script present",
+        "pillar": "build-system",
+        "level": 1,
+        "scope": "app",
+        "impact": "high",
+        "effort": "low",
+        "status": "pass",
+        "passRate": 1,
+        "appSummary": {
+          "passed": 1,
+          "total": 1
+        },
+        "appFailures": []
+      },
+      {
+        "id": "ci-config",
+        "title": "CI workflow configured",
+        "pillar": "build-system",
+        "level": 2,
+        "scope": "repo",
+        "impact": "high",
+        "effort": "medium",
+        "status": "pass",
+        "evidence": [
+          ".github/workflows"
+        ]
+      },
+      {
+        "id": "test-script",
+        "title": "Test script present",
+        "pillar": "testing",
+        "level": 1,
+        "scope": "app",
+        "impact": "high",
+        "effort": "low",
+        "status": "pass",
+        "passRate": 1,
+        "appSummary": {
+          "passed": 1,
+          "total": 1
+        },
+        "appFailures": []
+      },
+      {
+        "id": "readme",
+        "title": "README present",
+        "pillar": "documentation",
+        "level": 1,
+        "scope": "repo",
+        "impact": "high",
+        "effort": "low",
+        "status": "pass",
+        "evidence": [
+          "README.md"
+        ]
+      },
+      {
+        "id": "contributing",
+        "title": "CONTRIBUTING guide present",
+        "pillar": "documentation",
+        "level": 2,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "low",
+        "status": "pass"
+      },
+      {
+        "id": "lockfile",
+        "title": "Lockfile present",
+        "pillar": "dev-environment",
+        "level": 1,
+        "scope": "repo",
+        "impact": "high",
+        "effort": "low",
+        "status": "pass"
+      },
+      {
+        "id": "env-example",
+        "title": "Environment example present",
+        "pillar": "dev-environment",
+        "level": 2,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "low",
+        "status": "pass"
+      },
+      {
+        "id": "format-config",
+        "title": "Formatter configured",
+        "pillar": "code-quality",
+        "level": 2,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "low",
+        "status": "pass"
+      },
+      {
+        "id": "codeowners",
+        "title": "CODEOWNERS present",
+        "pillar": "security-governance",
+        "level": 2,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "low",
+        "status": "pass"
+      },
+      {
+        "id": "license",
+        "title": "LICENSE present",
+        "pillar": "security-governance",
+        "level": 1,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "low",
+        "status": "pass"
+      },
+      {
+        "id": "security-policy",
+        "title": "Security policy present",
+        "pillar": "security-governance",
+        "level": 3,
+        "scope": "repo",
+        "impact": "high",
+        "effort": "low",
+        "status": "pass"
+      },
+      {
+        "id": "dependabot",
+        "title": "Dependabot configured",
+        "pillar": "security-governance",
+        "level": 3,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "medium",
+        "status": "pass"
+      },
+      {
+        "id": "observability",
+        "title": "Observability tooling present",
+        "pillar": "observability",
+        "level": 3,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "medium",
+        "status": "pass",
+        "reason": "No observability dependencies detected (OpenTelemetry/logging)."
+      },
+      {
+        "id": "custom-instructions",
+        "title": "Custom instructions or agent guidance",
+        "pillar": "ai-tooling",
+        "level": 1,
+        "scope": "repo",
+        "impact": "high",
+        "effort": "low",
+        "status": "pass",
+        "evidence": [
+          ".github/copilot-instructions.md",
+          "AGENTS.md"
+        ]
+      },
+      {
+        "id": "instructions-consistency",
+        "title": "AI instruction files are consistent",
+        "pillar": "ai-tooling",
+        "level": 2,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "low",
+        "status": "pass",
+        "reason": "2 instruction files are consistent.",
+        "evidence": [
+          ".github/copilot-instructions.md",
+          "AGENTS.md"
+        ]
+      },
+      {
+        "id": "mcp-config",
+        "title": "MCP configuration present",
+        "pillar": "ai-tooling",
+        "level": 2,
+        "scope": "repo",
+        "impact": "high",
+        "effort": "low",
+        "status": "pass",
+        "reason": "Missing MCP (Model Context Protocol) configuration (e.g. .vscode/mcp.json).",
+        "evidence": [
+          ".vscode/mcp.json"
+        ]
+      },
+      {
+        "id": "custom-agents",
+        "title": "Custom AI agents configured",
+        "pillar": "ai-tooling",
+        "level": 3,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "medium",
+        "status": "pass",
+        "reason": "No custom AI agents configured (e.g. .github/agents/, .copilot/agents/).",
+        "evidence": [
+          ".github/agents"
+        ]
+      },
+      {
+        "id": "copilot-skills",
+        "title": "Copilot/Claude skills present",
+        "pillar": "ai-tooling",
+        "level": 3,
+        "scope": "repo",
+        "impact": "medium",
+        "effort": "medium",
+        "status": "pass",
+        "reason": "No Copilot or Claude skills found (e.g. .copilot/skills/, .github/skills/).",
+        "evidence": [
+          ".github/skills"
+        ]
+      }
+    ],
+    "extras": [
+      {
+        "id": "agents-doc",
+        "title": "AGENTS.md present",
+        "status": "pass"
+      },
+      {
+        "id": "pr-template",
+        "title": "Pull request template present",
+        "status": "pass"
+      },
+      {
+        "id": "pre-commit",
+        "title": "Pre-commit hooks configured",
+        "status": "fail",
+        "reason": "Missing pre-commit or Husky configuration for fast feedback."
+      },
+      {
+        "id": "architecture-doc",
+        "title": "Architecture guide present",
+        "status": "pass"
+      }
+    ]
+  }
+}
