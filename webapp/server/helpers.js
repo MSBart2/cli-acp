@@ -414,6 +414,7 @@ export function enrichPromptText(text, missionPrefix, crossRepoContext) {
  * @returns {string}
  */
 export function buildSynthesisPrompt(results, promptText, synthesisInstructions, missionContext) {
+  if (!Array.isArray(results) || results.length === 0) return "";
   const workerSummaries = results
     .map(
       (r) =>

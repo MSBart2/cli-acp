@@ -10,6 +10,26 @@
 
 ## Learnings
 
+### 2026-04-25 — Complete codebase review (Mal)
+
+Performed comprehensive review of all server + client source, tests, and documentation. Reviewed 2449 lines in `server/index.js`, all helpers, all client components, hooks, and utils. 424 total tests (130 server, 294 client) all passing.
+
+**Overall assessment:** Codebase is in strong shape. Architecture is clean, error handling is present, no security red flags beyond known constraints. Found 2 critical items needing fixes, 4 important items for improvement, and several minor items for polish.
+
+**Key findings:**
+- Race condition in `repoBseDirRef` typo could cause subtle config bugs
+- Missing early-return guard in `orchestrator:approve_routing_plan` allows operations on empty plan
+- Several helper functions lack null/undefined guards
+- JSDoc coverage incomplete across many server helpers
+- Documentation drift in model lists and component inventories
+
+**What I didn't find (good news):**
+- No TODO/FIXME/HACK comments left in code
+- No obvious memory leaks or unbounded growth
+- All tests passing, good coverage of critical paths
+- Security boundaries (URL validation, permission resolvers, NODE_ENV checks) all tight
+- Broadcast concurrency guard in place (activeBroadcastWave check)
+
 ### 2026-04-14 — Server code simplification + testability refactor (completed)
 
 Resolved the broadcast concurrency risk flagged in the initial deep-read: `activeBroadcastWave` guard added to `agent:prompt_all` — second broadcast rejected if first wave is still active (Wash).

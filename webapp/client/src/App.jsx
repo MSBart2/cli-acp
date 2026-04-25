@@ -51,10 +51,10 @@ export default function App() {
   // Ensures env-default repos are launched at most once per page load
   const hasAutoLaunchedRef = useRef(false);
   // Keep refs in sync so the config:defaults closure always sees current values
-  const repoBseDirRef = useRef(repoBaseDir);
+  const repoBaseDirRef = useRef(repoBaseDir);
   const reuseExistingRef = useRef(reuseExisting);
 
-  repoBseDirRef.current = repoBaseDir;
+  repoBaseDirRef.current = repoBaseDir;
   reuseExistingRef.current = reuseExisting;
 
   // Toast + browser notifications wired to socket events
@@ -332,10 +332,10 @@ export default function App() {
       if (hasAutoLaunchedRef.current) return;
       hasAutoLaunchedRef.current = true;
       if (orchestratorUrl) {
-        socket.emit("agent:create", { repoUrl: orchestratorUrl, role: "orchestrator", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, ...(model ? { model } : {}) });
+        socket.emit("agent:create", { repoUrl: orchestratorUrl, role: "orchestrator", repoBaseDir: repoBaseDirRef.current, reuseExisting: reuseExistingRef.current, ...(model ? { model } : {}) });
       }
       for (const url of workerUrls || []) {
-        socket.emit("agent:create", { repoUrl: url, role: "worker", repoBaseDir: repoBseDirRef.current, reuseExisting: reuseExistingRef.current, ...(model ? { model } : {}) });
+        socket.emit("agent:create", { repoUrl: url, role: "worker", repoBaseDir: repoBaseDirRef.current, reuseExisting: reuseExistingRef.current, ...(model ? { model } : {}) });
       }
     });
 

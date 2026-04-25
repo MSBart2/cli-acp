@@ -89,9 +89,10 @@ npm run build
 1. **Launch an orchestrator** by entering the coordination repo URL, optionally choosing a Copilot model, and clicking **Launch Orchestrator**.
 2. **Launch worker agents** for each target repo using **Add Worker**; each worker can use the default model or an explicitly selected model.
 3. **Broadcast a prompt** to workers; optionally add **Orchestrator Focus** to shape the final synthesis.
-4. **Track work with issues** by broadcasting an issue-creation prompt; the orchestrator captures the issue map.
-5. Review **coalesced results** and the orchestrator’s synthesized output.
-6. **Send targeted prompts**, approve permissions, and stop agents when finished.
+4. **Save broadcast prompts as playbooks** for reuse — click the 📖 icon in the broadcast bar to save, load, or manage named prompt templates.
+5. **Track work with issues** by broadcasting an issue-creation prompt; the orchestrator captures the issue map.
+6. Review **coalesced results** and the orchestrator’s synthesized output.
+7. **Send targeted prompts**, approve permissions, and stop agents when finished.
 
 ## Configuration
 

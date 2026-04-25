@@ -6,7 +6,7 @@
 - **Operator:** hobobart
 - **My domain:** All tests — `webapp/e2e/`, `webapp/server/__tests__/`, `webapp/client/src/__tests__/`
 - **E2E:** Playwright, config in `webapp/playwright.config.js` — `timeout: 30_000`, `workers: 1`, `fullyParallel: false`, `reuseExistingServer: !process.env.CI`
-- **Unit tests:** Vitest + React Testing Library. 110 server + 184 client = 294 total (all passing as of 2026-04-14)
+- **Unit tests:** Vitest + React Testing Library. **142 server** (6 files) + **353 client** (26 files) = **495 total** (all passing as of 2026-04-25)
 - **E2E tests:** 21 tests across 3 specs (all passing as of 2026-04-14)
 - **Page object:** `webapp/e2e/helpers/AppPage.js` — `openSessionPanel()`, `waitForOrchestratorReady()`, `waitForWorkerReady()`, `loadSession()`
 - **Key lessons learned:**
@@ -17,6 +17,41 @@
   - `data-testid` contract: `orchestrator-status`, `agent-status`, `broadcast-panel`, `broadcast-submit`, `session-trigger`, `session-item`
 
 ## Learnings
+
+### Session: 2026-04-25 — Test audit and coverage improvements
+
+- **Test audit summary:** Started with 130 server + 294 client = 424 tests, all passing. Performed thorough audit and added 71 new tests for untested logic.
+- **Final counts:** Server **142** tests (+12), client **353** tests (+59) = **495 total tests** (+71), all passing.
+- **New test files created:**
+  - `webapp/server/__tests__/buildEventLogEntry.test.js` — 12 tests covering all sessionUpdate event types and edge cases
+  - `webapp/client/src/__tests__/resolveAutoApproval.test.js` — 24 tests for permission preset auto-approval logic (ask/allow-reads/allow-all)
+  - `webapp/client/src/__tests__/StatusBadge.test.jsx` — 17 tests for shared StatusBadge component (both worker and orchestrator variants)
+  - `webapp/client/src/__tests__/OutputLog.test.jsx` — 18 tests for shared OutputLog component (text/tool_call/error entry types)
+- **Coverage gaps identified but not filled:**
+  - `getDirSize` utility function in server/index.js (recursive directory size calculation)
+  - `withTimeout` and `withActivityTimeout` promise wrappers in server/index.js (complex async timing logic)
+  - Socket.IO event handlers in server/index.js (require integration-style tests with live socket)
+  - Full integration flows like routing plan approval, cascade runs, mission context injection (better covered by E2E)
+- **Test patterns reinforced:**
+  - Use `vi.useFakeTimers()` and `vi.setSystemTime()` to control timestamps in tests
+  - Always `vi.useRealTimers()` in afterEach to avoid timer leakage
+  - Query by accessible roles/text in RTL, not implementation details
+  - Test the contract (inputs → outputs), not the implementation
+  - AAA structure: Arrange → Act → Assert
+  - Prefer `textContent` over `toHaveTextContent` when testing raw strings with newlines
+  - React fragments may return no DOM node when empty — test `container.textContent` instead of `firstChild`
+- **Learned about `resolveAutoApproval` logic:**
+  - `allow_once` kind is treated as read-like regardless of tool title
+  - Deny/reject/block options are always filtered out before auto-selection
+  - `allow-reads` preset checks title keywords AND option kinds
+  - Missing toolTitle with `allow_once` still auto-approves (read-like default)
+- **Test improvement opportunities for future:**
+  - Add integration tests for socket event handlers (spawn, prompt, permission, stop flows)
+  - Add tests for complex timing scenarios (prompt inactivity timeout, heartbeat mechanism)
+  - Add tests for crash detection and recovery paths
+  - Consider adding Playwright component tests for UI interactions that are hard to test in jsdom
+
+---
 
 ### Session: 2026-04-14 — 29 new tests for extracted helpers.js functions
 

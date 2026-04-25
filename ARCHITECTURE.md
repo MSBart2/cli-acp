@@ -63,9 +63,16 @@ cli-acp/
     ├── server/
     │   ├── index.js              # Express + Socket.IO + ACP orchestration
     │   ├── helpers.js            # URL validation, repo naming, work-item extraction
+    │   ├── sessionStore.js       # Session save/load/delete/list + pruning
+    │   ├── sessionLifecycle.js   # Session restore & re-spawn logic
+    │   ├── logger.js             # Pino logger configuration
     │   ├── package.json
     │   └── __tests__/
-    │       └── helpers.test.js   # Vitest unit tests for helpers
+    │       ├── helpers.test.js          # URL validation, parsing, extraction
+    │       ├── sessionStore.test.js     # Session persistence edge cases
+    │       ├── sessionLifecycle.test.js # Restore/re-spawn logic
+    │       ├── permissionResolver.test.js # Orphaned resolver cleanup
+    │       └── crashDetection.test.js   # Agent crash detection
     └── client/
         ├── index.html
         ├── vite.config.js        # Dev server + proxy to backend
@@ -84,7 +91,24 @@ cli-acp/
             │   ├── BroadcastInput.jsx   # Multi-agent prompt + @mentions + synthesis
             │   ├── BroadcastResults.jsx # Coalesced per-worker outputs
             │   ├── BroadcastHistory.jsx # Past broadcast prompts (collapsible)
+            │   ├── DependencyGraph.jsx  # Dependency relationship visualization
+            │   ├── MissionContext.jsx   # Mission/goal context panel
+            │   ├── PlaybookPanel.jsx    # Saved playbook management
+            │   ├── RoutingPlanPanel.jsx # Cascade routing plan approval UI
+            │   ├── SessionControl.jsx   # Session save/load/delete controls
+            │   ├── StatusBadge.jsx      # Shared status indicator component
+            │   ├── OutputLog.jsx        # Shared streaming output component
             │   └── WorkItemTracker.jsx  # Detected issues/PRs from agent output
+            ├── hooks/
+            │   ├── useAgentSocket.js    # Socket.IO event subscriptions
+            │   ├── useNotifications.js  # Toast + browser notification hook
+            │   ├── usePermissionPreset.js # Permission auto-approval presets
+            │   ├── usePlaybooks.js      # Playbook CRUD hook
+            │   └── mentionUtils.js      # @mention parsing for broadcasts
+            ├── utils/                   # Client utility modules
+            ├── agentState.js            # Agent state transition helpers
+            ├── copilotModels.js         # Known Copilot model list
+            ├── dependencySuggestions.js  # Dependency suggestion logic
             └── __tests__/
                 └── *.test.jsx           # Vitest + Testing Library tests
 ```
@@ -97,18 +121,25 @@ cli-acp/
 
 The server maintains a `Map<agentId, AgentEntry>` where each entry contains:
 
-| Field                | Type                       | Description                                    |
-| -------------------- | -------------------------- | ---------------------------------------------- |
-| `process`            | `ChildProcess`             | The spawned `copilot --acp --stdio` process    |
-| `connection`         | `ClientSideConnection`     | ACP SDK handle for JSON-RPC communication      |
-| `sessionId`          | `string`                   | ACP session ID returned by `newSession()`      |
-| `repoUrl`            | `string`                   | Original Git URL                               |
-| `repoName`           | `string`                   | Extracted repo name (used for display)         |
-| `repoPath`           | `string`                   | Local filesystem path to cloned repo           |
-| `model`              | `string \| null`           | Explicit Copilot model, or `null` for default |
-| `role`               | `"orchestrator"\|"worker"` | Determines UI treatment and broadcast behavior |
-| `status`             | `string`                   | `spawning`, `ready`, `busy`, `error`           |
-| `permissionResolver` | `Function \| null`         | Resolves pending permission request promise    |
+| Field                      | Type                       | Description                                       |
+| -------------------------- | -------------------------- | ------------------------------------------------- |
+| `process`                  | `ChildProcess`             | The spawned `copilot --acp --stdio` process       |
+| `connection`               | `ClientSideConnection`     | ACP SDK handle for JSON-RPC communication         |
+| `sessionId`                | `string`                   | ACP session ID returned by `newSession()`         |
+| `repoUrl`                  | `string`                   | Original Git URL                                  |
+| `repoName`                 | `string`                   | Extracted repo name (used for display)            |
+| `repoPath`                 | `string`                   | Local filesystem path to cloned repo              |
+| `repoReused`               | `boolean`                  | Whether an existing clone was reused              |
+| `model`                    | `string \| null`           | Explicit Copilot model, or `null` for default     |
+| `role`                     | `"orchestrator"\|"worker"` | Determines UI treatment and broadcast behavior    |
+| `status`                   | `string`                   | `spawning`, `initializing`, `ready`, `busy`, `error`, `stopped` |
+| `permissionResolver`       | `Function \| null`         | Resolves pending permission request promise       |
+| `socketId`                 | `string`                   | Owning socket — used for disconnect cleanup       |
+| `pendingPermissionOptions` | `Array \| null`            | Options for pending permission (disconnect guard) |
+| `heartbeat`                | `Function \| null`         | Resets inactivity timeout on streaming updates    |
+| `eventLog`                 | `Array`                    | Ordered ACP sessionUpdate events for this agent   |
+| `manifest`                 | `Object \| null`           | Parsed `acp-manifest.json` dependency data        |
+| `manifestMissing`          | `boolean`                  | True when agent confirmed no manifest exists      |
 
 ### Roles: Orchestrator vs Worker
 
