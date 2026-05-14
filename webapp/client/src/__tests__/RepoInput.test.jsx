@@ -75,4 +75,46 @@ describe("RepoInput", () => {
     render(<RepoInput {...defaults} />);
     expect(screen.getByText("Connect another repository")).toBeInTheDocument();
   });
+
+  it("passes custom ACP command when advanced options are filled", () => {
+    const onLaunch = vi.fn();
+    render(<RepoInput onLaunch={onLaunch} connected={true} />);
+    // Fill repo URL
+    fireEvent.change(screen.getByPlaceholderText("https://github.com/owner/repo"), {
+      target: { value: "https://github.com/owner/repo" },
+    });
+    // Expand advanced options
+    fireEvent.click(screen.getByText("Custom ACP Process"));
+    // Fill custom command and args
+    fireEvent.change(screen.getByPlaceholderText(/Executable/), {
+      target: { value: "my-agent" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Extra args/), {
+      target: { value: "--verbose --port 8080" },
+    });
+    fireEvent.click(screen.getByText("Launch Worker"));
+    expect(onLaunch).toHaveBeenCalledWith(
+      "https://github.com/owner/repo",
+      "worker",
+      undefined,
+      { command: "my-agent", args: ["--verbose", "--port", "8080"] },
+    );
+  });
+
+  it("does not pass acpCommand when advanced fields are empty", () => {
+    const onLaunch = vi.fn();
+    render(<RepoInput onLaunch={onLaunch} connected={true} />);
+    fireEvent.change(screen.getByPlaceholderText("https://github.com/owner/repo"), {
+      target: { value: "https://github.com/owner/repo" },
+    });
+    // Expand advanced but leave fields empty
+    fireEvent.click(screen.getByText("Custom ACP Process"));
+    fireEvent.click(screen.getByText("Launch Worker"));
+    expect(onLaunch).toHaveBeenCalledWith(
+      "https://github.com/owner/repo",
+      "worker",
+      undefined,
+      undefined,
+    );
+  });
 });
