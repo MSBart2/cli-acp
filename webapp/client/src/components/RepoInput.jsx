@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { Rocket, Loader2, PlusCircle } from "lucide-react";
+import { Rocket, Loader2, PlusCircle, ChevronDown, ChevronRight, Terminal } from "lucide-react";
 import { COPILOT_MODEL_SUGGESTIONS } from "../copilotModels";
 
 /**
@@ -10,13 +10,23 @@ export default function RepoInput({ onLaunch, connected }) {
   const [repoUrl, setRepoUrl] = useState("");
   const [model, setModel] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [acpCommand, setAcpCommand] = useState("");
+  const [acpArgs, setAcpArgs] = useState("");
   const inputRef = useRef(null);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!repoUrl.trim() || !connected) return;
     setLoading(true);
-    onLaunch(repoUrl.trim(), "worker", model.trim() || undefined);
+    // Build acpCommand payload if custom command is specified
+    const customAcp = acpCommand.trim()
+      ? {
+        command: acpCommand.trim(),
+        args: acpArgs.trim() ? acpArgs.trim().split(/\s+/) : [],
+      }
+      : undefined;
+    onLaunch(repoUrl.trim(), "worker", model.trim() || undefined, customAcp);
     setTimeout(() => {
       setLoading(false);
       setRepoUrl("");
@@ -64,6 +74,45 @@ export default function RepoInput({ onLaunch, connected }) {
               disabled={loading || !connected}
               className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-40 transition-all"
             />
+          </div>
+          {/* Collapsible advanced options — custom ACP command */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              {showAdvanced ? (
+                <ChevronDown className="w-3 h-3" />
+              ) : (
+                <ChevronRight className="w-3 h-3" />
+              )}
+              <Terminal className="w-3 h-3" />
+              Custom ACP Process
+            </button>
+            {showAdvanced && (
+              <div className="mt-2 space-y-1.5">
+                <input
+                  type="text"
+                  value={acpCommand}
+                  onChange={(e) => setAcpCommand(e.target.value)}
+                  placeholder="Executable (e.g. my-acp-agent)"
+                  disabled={loading || !connected}
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-40 transition-all font-mono"
+                />
+                <input
+                  type="text"
+                  value={acpArgs}
+                  onChange={(e) => setAcpArgs(e.target.value)}
+                  placeholder="Extra args (space-separated)"
+                  disabled={loading || !connected}
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-40 transition-all font-mono"
+                />
+                <p className="text-[10px] text-gray-600">
+                  Override the default Copilot CLI with any ACP-compliant process
+                </p>
+              </div>
+            )}
           </div>
           <button
             onClick={handleSubmit}

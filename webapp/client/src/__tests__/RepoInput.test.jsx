@@ -41,7 +41,7 @@ describe("RepoInput", () => {
     const input = screen.getByPlaceholderText("https://github.com/owner/repo");
     fireEvent.change(input, { target: { value: "https://github.com/owner/repo" } });
     fireEvent.click(screen.getByText("Launch Worker"));
-    expect(onLaunch).toHaveBeenCalledWith("https://github.com/owner/repo", "worker", undefined);
+    expect(onLaunch).toHaveBeenCalledWith("https://github.com/owner/repo", "worker", undefined, undefined);
   });
 
   it("submits on Enter key press", () => {
@@ -50,7 +50,7 @@ describe("RepoInput", () => {
     const input = screen.getByPlaceholderText("https://github.com/owner/repo");
     fireEvent.change(input, { target: { value: "https://github.com/owner/repo" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onLaunch).toHaveBeenCalledWith("https://github.com/owner/repo", "worker", undefined);
+    expect(onLaunch).toHaveBeenCalledWith("https://github.com/owner/repo", "worker", undefined, undefined);
   });
 
   it("passes the selected model when provided", () => {
@@ -67,6 +67,7 @@ describe("RepoInput", () => {
       "https://github.com/owner/repo",
       "worker",
       "claude-sonnet-4.6",
+      undefined,
     );
   });
 
