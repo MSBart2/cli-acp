@@ -26,7 +26,7 @@
   "devDependencies": {
     "@agentclientprotocol/sdk": "^0.14.1",
     "@playwright/test": "^1.59.1",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.0",
     "cross-env": "^7.0.3"
   }
 }
