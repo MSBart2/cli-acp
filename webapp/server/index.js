@@ -1681,10 +1681,10 @@ io.on("connection", (socket) => {
     }
   }
   // Advertise env-configured default repos so the client can auto-launch them
-  // Send this AFTER agent snapshots so the client knows about existing agents
+  // Only send defaults if there are NO agents currently running (prevents respawn on page refresh)
   socket.emit("config:defaults", {
-    orchestratorUrl: DEFAULT_ORCHESTRATOR_URL || null,
-    workerUrls: DEFAULT_WORKER_URLS,
+    orchestratorUrl: agents.size > 0 ? null : (DEFAULT_ORCHESTRATOR_URL || null),
+    workerUrls: agents.size > 0 ? [] : DEFAULT_WORKER_URLS,
     model: DEFAULT_MODEL,
   });
 

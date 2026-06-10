@@ -51,8 +51,6 @@ export default function App() {
   const [routingPlan, setRoutingPlan] = useState(null);
   // Ensures env-default repos are launched at most once per page load
   const hasAutoLaunchedRef = useRef(false);
-  // Track whether we've received the initial agent state from the server
-  const hasReceivedInitialStateRef = useRef(false);
   // Keep refs in sync so the config:defaults closure always sees current values
   const repoBaseDirRef = useRef(repoBaseDir);
   const reuseExistingRef = useRef(reuseExisting);
@@ -108,11 +106,7 @@ export default function App() {
       });
     });
 
-    // Mark that initial agent state has been synced
     socket.on("agent:snapshot", (data) => {
-      if (!hasReceivedInitialStateRef.current) {
-        hasReceivedInitialStateRef.current = true;
-      }
       setAgents((prev) => {
         const existing = prev[data.agentId];
         return {
@@ -337,17 +331,10 @@ export default function App() {
     // Auto-launch env-configured repos on first connect (only if no agents exist yet)
     socket.on("config:defaults", ({ orchestratorUrl, workerUrls, model }) => {
       if (hasAutoLaunchedRef.current) return;
-      // Mark that we've received initial state (even if no agents exist)
-      if (!hasReceivedInitialStateRef.current) {
-        hasReceivedInitialStateRef.current = true;
-      }
       hasAutoLaunchedRef.current = true;
       
-      // Check if agents already exist (e.g., after page refresh with running agents)
-      // This check is reliable now because config:defaults is sent AFTER agent snapshots
-      const agentCount = Object.keys(agents).length;
-      if (agentCount > 0) {
-        // Agents already exist, don't spawn again
+      // If the server sent empty values, there are already agents running — don't spawn
+      if (!orchestratorUrl && (!workerUrls || workerUrls.length === 0)) {
         return;
       }
       
