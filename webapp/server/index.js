@@ -1619,12 +1619,6 @@ io.on("connection", (socket) => {
   console.log(`[socket] Client connected: ${socket.id}`);
   // Send the current session brief to reconnecting clients
   socket.emit("mission:updated", { text: globalMissionContext });
-  // Advertise env-configured default repos so the client can auto-launch them
-  socket.emit("config:defaults", {
-    orchestratorUrl: DEFAULT_ORCHESTRATOR_URL || null,
-    workerUrls: DEFAULT_WORKER_URLS,
-    model: DEFAULT_MODEL,
-  });
   // Re-sync current agent states so reconnecting clients don't lose the UI
   if (agents.size > 0) {
     const graph = buildDependencyGraph(agents);
@@ -1632,6 +1626,13 @@ io.on("connection", (socket) => {
       socket.emit("agent:snapshot", buildAgentSnapshot(agentId, graph));
     }
   }
+  // Advertise env-configured default repos so the client can auto-launch them
+  // Send this AFTER agent snapshots so the client knows about existing agents
+  socket.emit("config:defaults", {
+    orchestratorUrl: DEFAULT_ORCHESTRATOR_URL || null,
+    workerUrls: DEFAULT_WORKER_URLS,
+    model: DEFAULT_MODEL,
+  });
 
   // -- Create a new agent for a repo --
   socket.on(

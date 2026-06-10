@@ -3,73 +3,68 @@
 Use this page as the entry point for the ACP Agent Orchestrator's user-facing
 scenario docs.
 
-The old `SCENARIO.md` tried to do everything in one place. It worked as a
-flagship demo, but it made the product harder to learn because setup, core
-usage, dependency-aware flows, and session recovery were all mixed together.
-
-The scenario set below breaks that material into focused walkthroughs. Each
-file teaches one job to be done.
+All scenarios are designed around the `shopfleet-*` microservices configured in `.env`.
+Each scenario teaches a different operational workflow, from foundational to advanced.
 
 ## Start here
 
-If you are new to the tool, read these in order:
+If you are new to the tool or new to shopfleet, read these in order:
 
-1. [`01-first-broadcast-and-synthesis`](docs/scenarios/01-first-broadcast-and-synthesis.md)
-2. [`02-documentation-audit-with-issues-and-prs`](docs/scenarios/02-documentation-audit-with-issues-and-prs.md)
-3. [`03-dependency-aware-routing-and-cascades`](docs/scenarios/03-dependency-aware-routing-and-cascades.md)
-4. [`04-loading-missing-dependency-workers`](docs/scenarios/04-loading-missing-dependency-workers.md)
-5. [`05-saving-restoring-and-respawning-sessions`](docs/scenarios/05-saving-restoring-and-respawning-sessions.md)
+1. [`01-service-audit-and-api-alignment`](docs/scenarios/01-service-audit-and-api-alignment.md)
+2. [`02-payment-expansion`](docs/scenarios/02-payment-expansion.md)
+3. [`03-loyalty-feature-rollout`](docs/scenarios/03-loyalty-feature-rollout.md)
+4. [`04-inventory-sync-coordination`](docs/scenarios/04-inventory-sync-coordination.md)
+5. [`05-security-audit-shared-upgrade`](docs/scenarios/05-security-audit-shared-upgrade.md)
 
 ## Scenario chooser
 
 | If you want to... | Read this |
 | --- | --- |
-| Learn the basic operator workflow | [`01-first-broadcast-and-synthesis`](docs/scenarios/01-first-broadcast-and-synthesis.md) |
-| Run a full cross-repo operation with issues and PRs | [`02-documentation-audit-with-issues-and-prs`](docs/scenarios/02-documentation-audit-with-issues-and-prs.md) |
-| Roll a change downstream through dependent repos | [`03-dependency-aware-routing-and-cascades`](docs/scenarios/03-dependency-aware-routing-and-cascades.md) |
-| Pull missing repos into the session when the graph is incomplete | [`04-loading-missing-dependency-workers`](docs/scenarios/04-loading-missing-dependency-workers.md) |
-| Pause work and resume it later safely | [`05-saving-restoring-and-respawning-sessions`](docs/scenarios/05-saving-restoring-and-respawning-sessions.md) |
+| Learn the basic operator workflow with microservices | [`01-service-audit-and-api-alignment`](docs/scenarios/01-service-audit-and-api-alignment.md) |
+| Add a new payment method across e-commerce services | [`02-payment-expansion`](docs/scenarios/02-payment-expansion.md) |
+| Roll out a multi-service feature (loyalty points) | [`03-loyalty-feature-rollout`](docs/scenarios/03-loyalty-feature-rollout.md) |
+| Fix and coordinate inventory synchronization bugs | [`04-inventory-sync-coordination`](docs/scenarios/04-inventory-sync-coordination.md) |
+| Manage a critical security fix in a shared library | [`05-security-audit-shared-upgrade`](docs/scenarios/05-security-audit-shared-upgrade.md) |
 
 ## Scenario summaries
 
-### 1. First broadcast and synthesis
+### 1. Service audit and API alignment
 
-The shortest happy path. Launch one orchestrator and a few workers, send a
-broadcast prompt, review the `Broadcast Results` panel, and watch the
-orchestrator turn the raw worker output into a combined answer.
+The foundational scenario. Launch the orchestrator and all shopfleet services,
+send a broadcast audit prompt to understand each service's role and API, then
+watch the orchestrator synthesize the findings into a unified architectural view.
+Perfect for onboarding to the system.
 
-### 2. Documentation audit with issues and PRs
+### 2. Payment expansion
 
-The flagship end-to-end scenario. Audit several repositories, create tracking
-issues, generate README PRs, and let the orchestrator keep the issue/PR map in
-one coordination repo.
+Add a new payment method (e.g., digital wallet) to an e-commerce system. This
+scenario demonstrates dependency-aware routing from a shared library through
+dependent services with service-specific prompts based on the dependency graph.
 
-### 3. Dependency-aware routing and cascades
+### 3. Loyalty feature rollout
 
-The rollout scenario for contract or shared-library changes. It shows how the
-tool uses graph-derived relationships from either `dependsOn` or `dependedBy`,
-proposes a routing plan, and lets you approve downstream prompts before they
-fan out.
+Roll out a multi-service loyalty points system across users, orders, products,
+payments, and storefront. This teaches orchestrator synthesis across a wide
+broadcast and consistency validation across many services.
 
-### 4. Loading missing dependency workers
+### 4. Inventory sync coordination
 
-The graph-completion scenario. When a worker or the orchestrator detects repos
-that are referenced but not loaded, this walkthrough shows how to use
-`Load as Worker`, repair missing manifest context, and keep the dependency view
-trustworthy.
+Diagnose and fix product inventory synchronization bugs between Products,
+Orders, and Storefront. This scenario covers incident diagnosis, data
+consistency, and coordinated deployment with strict sequencing constraints.
 
-### 5. Saving, restoring, and re-spawning sessions
+### 5. Security audit and shared library upgrade
 
-The long-running operation scenario. Save a session, restore it in UI-only
-mode, re-spawn agents when you want live copilots again, and restart a single
-stopped agent without rebuilding the whole workspace.
+Manage a critical security fix in `shopfleet-shared` that must propagate to all
+dependent services. This teaches orchestrator-coordinated validation and safe
+sequencing for breaking changes in shared libraries.
 
 ## Suggested combinations
 
-- **Quick demo:** 1
-- **Full documentation campaign:** 1 -> 2
-- **Safe dependency rollout:** 1 -> 3 -> 4
-- **Long-running multi-repo operation:** 1 or 2 -> 5
+- **Quick intro**: 1
+- **Feature launch**: 1 → 2 (or 1 → 3)
+- **Security-critical path**: 1 → 5
+- **Full operational mastery**: 1 → 2 → 3 → 4 → 5
 
 ## How these docs are written
 
