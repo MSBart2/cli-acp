@@ -69,6 +69,10 @@ vi.mock("../components/RepoInput", () => ({
   default: () => <div data-testid="repo-input" />,
 }));
 
+vi.mock("../components/OrgRepoScanner", () => ({
+  default: () => <div data-testid="org-repo-scanner" />,
+}));
+
 vi.mock("../components/OrchestratorInput", () => ({
   default: () => <div data-testid="orchestrator-input" />,
 }));

@@ -10,6 +10,7 @@ import { Terminal } from "lucide-react";
 import { Toaster } from "react-hot-toast";
 import Header from "./components/Header";
 import RepoInput from "./components/RepoInput";
+import OrgRepoScanner from "./components/OrgRepoScanner";
 import AgentCard from "./components/AgentCard";
 import OrchestratorCard from "./components/OrchestratorCard";
 import OrchestratorInput from "./components/OrchestratorInput";
@@ -386,13 +387,14 @@ export default function App() {
     };
   }, []);
 
-  const handleLaunchAgent = useCallback((repoUrl, role = "worker", model) => {
+  const handleLaunchAgent = useCallback((repoUrl, role = "worker", model, acpCommand) => {
     socket.emit("agent:create", {
       repoUrl,
       role,
       repoBaseDir,
       reuseExisting,
       model,
+      acpCommand,
     });
   }, [repoBaseDir, reuseExisting]);
 
@@ -498,6 +500,7 @@ export default function App() {
     [workers],
   );
   const workerRepoNames = workers.map((a) => a.repoName);
+  const loadedRepoUrls = agentList.map((a) => a.repoUrl).filter(Boolean);
   const readyCount = workers.filter((a) => a.status === "ready").length;
   const busyCount = workers.filter((a) => a.status === "busy").length;
   const errorCount = workers.filter((a) => a.status === "error").length;
@@ -594,6 +597,13 @@ export default function App() {
                   workerRepoNames={workerRepoNames}
                 />
               )}
+
+              {/* Org repo scanner — browse GitHub orgs to discover and load repos */}
+              <OrgRepoScanner
+                onLoadRepo={(url) => handleLaunchAgent(url, "worker")}
+                loadedRepoUrls={loadedRepoUrls}
+                connected={connected}
+              />
 
               {/* Worker grid — RepoInput always appears as the last card */}
               <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">

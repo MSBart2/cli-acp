@@ -340,6 +340,48 @@ app.get("/api/disk-usage", (req, res) => {
   res.json({ totalBytes, agents: usage });
 });
 
+// Returns repos in a GitHub org/user using the `gh` CLI.
+const GH_OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+app.get("/api/github/org-repos", (req, res) => {
+  const org = (req.query.org || "").trim();
+  if (!org || !GH_OWNER_RE.test(org)) {
+    return res
+      .status(400)
+      .json({ error: "Invalid GitHub org/user name" });
+  }
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 300);
+
+  try {
+    const raw = execSync(
+      // execSync with explicit args in a single string is safe here because
+      // `org` is validated against a strict regex above (alphanumeric + hyphens).
+      `gh repo list ${org} --json name,url,description,primaryLanguage,updatedAt --limit ${limit}`,
+      { timeout: 30_000, encoding: "utf-8" },
+    );
+    const repos = JSON.parse(raw);
+    // Normalize the shape for the client
+    const normalized = repos.map((r) => ({
+      name: r.name,
+      fullName: `${org}/${r.name}`,
+      url: r.url,
+      description: r.description || "",
+      language: r.primaryLanguage?.name || null,
+      updatedAt: r.updatedAt,
+    }));
+    res.json({ org, repos: normalized, total: normalized.length, limit });
+  } catch (err) {
+    const msg = err.stderr?.toString() || err.message || "Unknown error";
+    if (msg.includes("not found") || msg.includes("Could not resolve")) {
+      return res.status(404).json({ error: `Organization "${org}" not found or inaccessible` });
+    }
+    if (msg.includes("auth") || msg.includes("login")) {
+      return res.status(401).json({ error: "GitHub CLI is not authenticated. Run `gh auth login` first." });
+    }
+    console.error(`[api] /api/github/org-repos error: ${msg}`);
+    res.status(500).json({ error: `Failed to list repos: ${msg.slice(0, 200)}` });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Agent registry – one entry per spawned copilot process
 // ---------------------------------------------------------------------------
@@ -1184,21 +1226,29 @@ function crossPopulateDependedBy(
  * @returns {{ process: import('node:child_process').ChildProcess, connection: object, earlyExitPromise: Promise<never> }}
  * @throws {Error} if the process cannot be spawned
  */
-function spawnAndConnect({ agentId, model, socket }) {
-  // Use runtime test override if set, otherwise fall back to env/default
-  const effectiveCli = testCliOverride.path ?? COPILOT_CLI_PATH;
-  const extraArgs =
-    testCliOverride.args.length > 0
-      ? testCliOverride.args
-      : COPILOT_CLI_EXTRA_ARGS;
+function spawnAndConnect({ agentId, model, socket, acpCommand }) {
+  // When a custom ACP command is provided, use it directly (no Copilot-specific flags).
+  // Otherwise fall back to the default Copilot CLI with --acp --stdio.
+  let effectiveCli;
+  let processArgs;
 
-  const copilotArgs = [...extraArgs, "--acp", "--stdio"];
-  if (typeof model === "string" && model.trim()) {
-    copilotArgs.push("--model", model.trim());
+  if (acpCommand) {
+    effectiveCli = acpCommand.command;
+    processArgs = [...(acpCommand.args || [])];
+  } else {
+    effectiveCli = testCliOverride.path ?? COPILOT_CLI_PATH;
+    const extraArgs =
+      testCliOverride.args.length > 0
+        ? testCliOverride.args
+        : COPILOT_CLI_EXTRA_ARGS;
+    processArgs = [...extraArgs, "--acp", "--stdio"];
+    if (typeof model === "string" && model.trim()) {
+      processArgs.push("--model", model.trim());
+    }
   }
 
   // shell: true lets Windows resolve .cmd/.ps1 wrappers (e.g. copilot.cmd)
-  const copilotProcess = spawn(effectiveCli, copilotArgs, {
+  const copilotProcess = spawn(effectiveCli, processArgs, {
     stdio: ["pipe", "pipe", "inherit"],
     shell: true,
   });
@@ -1258,6 +1308,7 @@ async function createAgent(
   reuseExisting = false,
   model = null,
   existingId = null,
+  acpCommand = null,
 ) {
   // Enforce single-orchestrator rule
   if (role === "orchestrator") {
@@ -1317,7 +1368,7 @@ async function createAgent(
     model,
     role,
     step: "starting",
-    message: "Starting Copilot CLI…",
+    message: acpCommand ? `Starting ACP process (${acpCommand.command})…` : "Starting Copilot CLI…",
   });
 
   let copilotProcess, connection, earlyExitPromise;
@@ -1326,12 +1377,13 @@ async function createAgent(
       process: copilotProcess,
       connection,
       earlyExitPromise,
-    } = spawnAndConnect({ agentId, model, socket }));
+    } = spawnAndConnect({ agentId, model, socket, acpCommand }));
   } catch (err) {
     console.error(`[agent:create] Spawn failed: ${err.message}`);
+    const cliLabel = acpCommand ? acpCommand.command : COPILOT_CLI_PATH;
     socket.emit("agent:error", {
       agentId,
-      error: `Failed to start copilot CLI. Is "${COPILOT_CLI_PATH}" installed and on the PATH?`,
+      error: `Failed to start ACP process. Is "${cliLabel}" installed and on the PATH?`,
     });
     return;
   }
@@ -1360,6 +1412,7 @@ async function createAgent(
     eventLog: [],
     manifest: null, // parsed acp-manifest.json, or null
     manifestMissing: false, // true when agent confirmed the file doesn't exist
+    acpCommand: acpCommand || null, // custom ACP process definition, or null for default Copilot
   });
 
   try {
@@ -1523,6 +1576,7 @@ async function respawnAgentsFromSnapshot(socket, restoredAgents) {
         a.repoReused || currentReuseExisting,
         a.model ?? null,
         a.id,
+        a.acpCommand ?? null,
       );
     } catch (err) {
       socket.emit("agent:error", {
@@ -1637,7 +1691,7 @@ io.on("connection", (socket) => {
   // -- Create a new agent for a repo --
   socket.on(
     "agent:create",
-    async ({ repoUrl, role, repoBaseDir, reuseExisting, model }) => {
+    async ({ repoUrl, role, repoBaseDir, reuseExisting, model, acpCommand }) => {
       if (!repoUrl || typeof repoUrl !== "string") {
         socket.emit("agent:error", {
           agentId: null,
@@ -1652,8 +1706,23 @@ io.on("connection", (socket) => {
         });
         return;
       }
+      // Validate acpCommand structure if provided
+      let validatedAcpCommand = null;
+      if (acpCommand) {
+        if (typeof acpCommand.command !== "string" || !acpCommand.command.trim()) {
+          socket.emit("agent:error", {
+            agentId: null,
+            error: "acpCommand.command must be a non-empty string",
+          });
+          return;
+        }
+        validatedAcpCommand = {
+          command: acpCommand.command.trim(),
+          args: Array.isArray(acpCommand.args) ? acpCommand.args.map(String) : [],
+        };
+      }
       console.log(
-        `[socket] agent:create \u2192 ${repoUrl} (role: ${role || "worker"}) base: ${repoBaseDir || REPO_BASE_DIR} reuse: ${!!reuseExisting}`,
+        `[socket] agent:create \u2192 ${repoUrl} (role: ${role || "worker"}) base: ${repoBaseDir || REPO_BASE_DIR} reuse: ${!!reuseExisting}${validatedAcpCommand ? ` acp: ${validatedAcpCommand.command}` : ""}`,
       );
       // Track the base dir so session:load respawn can reuse it
       if (repoBaseDir) currentRepoBaseDir = repoBaseDir;
@@ -1665,6 +1734,8 @@ io.on("connection", (socket) => {
         repoBaseDir,
         reuseExisting,
         model,
+        null,
+        validatedAcpCommand,
       );
     },
   );
@@ -2237,6 +2308,7 @@ io.on("connection", (socket) => {
         agent.repoReused,
         agent.model ?? null,
         agentId,
+        agent.acpCommand ?? null,
       );
     } catch (err) {
       socket.emit("agent:error", { agentId, error: err.message });
